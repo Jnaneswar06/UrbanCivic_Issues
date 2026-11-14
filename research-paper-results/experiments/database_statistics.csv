@@ -1,0 +1,26 @@
+statistic_category,metric_name,value
+Overall Volume,Total Complaints,16
+Overall Volume,Total Status History Logs,47
+Overall Volume,Total Complaint Participants,0
+Overall Volume,Total Users Registered,7
+Overall Volume,Total Municipal Departments,8
+Complaint Status,FORWARDED,7
+Complaint Status,RESOLVED,5
+Complaint Status,SUBMITTED,4
+Assignment Method,AUTO_ML,7
+Assignment Method,LEGACY_UNSET,5
+Assignment Method,MANUAL_REVIEW_ML_FAILED,3
+Assignment Method,MANUAL_REVIEW_NO_SUPERVISOR,1
+Manual Review Flag,requiresManualReview=False,7
+Manual Review Flag,requiresManualReview=None,5
+Manual Review Flag,requiresManualReview=True,4
+User Role,CITIZEN,2
+User Role,SUPERVISOR,3
+User Role,ADMIN,1
+User Role,WORKER,1
+SLA Compliance (Resolved),resolvedWithinSla=False,2
+SLA Compliance (Resolved),resolvedWithinSla=True,3
+Issue Category,POTHOLE,8
+Issue Category,GARBAGE,5
+Issue Category,STREET_LIGHT_DAMAGE,2
+Issue Category,INFRASTRUCTURE_DAMAGE,1

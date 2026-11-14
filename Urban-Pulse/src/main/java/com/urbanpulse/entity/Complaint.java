@@ -129,4 +129,28 @@ public class Complaint {
 
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt;
+
+    @Column(name = "review_status")
+    private String reviewStatus;
+
+    @Column(name = "classification_status")
+    private String classificationStatus;
+
+    @Column(name = "classification_source")
+    private String classificationSource;
+
+    @Column(name = "binary_confidence")
+    private Double binaryConfidence;
+
+    @Column(name = "admin_reviewed_by")
+    private String adminReviewedBy;
+
+    @Column(name = "admin_reviewed_at")
+    private LocalDateTime adminReviewedAt;
+
+    @Column(name = "admin_review_remarks", length = 1024)
+    private String adminReviewRemarks;
+
+    @Column(name = "admin_rejection_reason", length = 1024)
+    private String adminRejectionReason;
 }

@@ -1,6 +1,8 @@
 package com.urbanpulse.service;
 
 import com.urbanpulse.dto.AdminManualAssignRequest;
+import com.urbanpulse.dto.AdminReviewApproveRequest;
+import com.urbanpulse.dto.AdminReviewRejectRequest;
 import com.urbanpulse.dto.AssignWorkerRequest;
 import com.urbanpulse.dto.CheckDuplicateRequest;
 import com.urbanpulse.dto.CheckDuplicateResponse;
@@ -206,7 +208,10 @@ public class ComplaintService {
                 boolean hasJoined = isOrig || (normalizedUser != null &&
                         complaintParticipantRepository.existsByComplaintIdAndCitizenMobileNumber(candidate.getId(), normalizedUser));
 
-                boolean isActive = candidate.getStatus() != null && ACTIVE_STATUSES.contains(candidate.getStatus());
+                boolean isConfirmedCivic = !Boolean.FALSE.equals(candidate.getIsCivicIssue());
+                boolean isActive = isConfirmedCivic && candidate.getStatus() != null
+                        && candidate.getStatus() != ComplaintStatus.PENDING_ADMIN_REVIEW
+                        && ACTIVE_STATUSES.contains(candidate.getStatus());
                 boolean eligibleForJoin = isActive && !hasJoined;
 
                 DuplicateComplaintSummary summary = DuplicateComplaintSummary.builder()
@@ -513,6 +518,27 @@ public class ComplaintService {
     @Transactional
     public ComplaintResponse manualAssignComplaint(Long complaintId, AdminManualAssignRequest request, String adminMobile) {
         Complaint updated = automaticRoutingService.manualAssignByAdmin(complaintId, request, adminMobile);
+        return mapToResponse(updated, adminMobile);
+    }
+
+    public List<ComplaintResponse> getPendingReviewComplaints() {
+        List<Complaint> complaints = complaintRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(c -> Boolean.TRUE.equals(c.getRequiresManualReview()) ||
+                             c.getStatus() == ComplaintStatus.PENDING_ADMIN_REVIEW ||
+                             "PENDING_ADMIN_REVIEW".equals(c.getReviewStatus()))
+                .collect(Collectors.toList());
+        return mapListToResponses(complaints, null);
+    }
+
+    @Transactional
+    public ComplaintResponse approveNonCivicComplaint(Long complaintId, AdminReviewApproveRequest request, String adminMobile) {
+        Complaint updated = automaticRoutingService.approveNonCivicComplaintByAdmin(complaintId, request, adminMobile);
+        return mapToResponse(updated, adminMobile);
+    }
+
+    @Transactional
+    public ComplaintResponse rejectNonCivicComplaint(Long complaintId, AdminReviewRejectRequest request, String adminMobile) {
+        Complaint updated = automaticRoutingService.rejectNonCivicComplaintByAdmin(complaintId, request, adminMobile);
         return mapToResponse(updated, adminMobile);
     }
 
@@ -898,6 +924,14 @@ public class ComplaintService {
                 .binaryPrediction(c.getBinaryPrediction())
                 .notCivicProbability(c.getNotCivicProbability())
                 .civicProbability(c.getCivicProbability())
+                .reviewStatus(c.getReviewStatus())
+                .classificationStatus(c.getClassificationStatus())
+                .classificationSource(c.getClassificationSource())
+                .binaryConfidence(c.getBinaryConfidence())
+                .adminReviewedBy(c.getAdminReviewedBy())
+                .adminReviewedAt(c.getAdminReviewedAt())
+                .adminReviewRemarks(c.getAdminReviewRemarks())
+                .adminRejectionReason(c.getAdminRejectionReason())
                 .build();
     }
 

@@ -1,0 +1,23 @@
+flowchart LR
+    A["Raw ML Category\n(e.g., 'Damaged concrete structures',\n'Potholes and RoadCracks',\n'Garbage')"] --> B["CategoryDepartmentMappingService\n• Canonicalize String Format\n• Map to Enum: IssueType\n• Calculate Immutable SLA Deadline"]
+
+    B --> C["Department Name Lookup"]
+
+    subgraph MunicipalRouting ["Department Routing Table"]
+        C -->|"Damaged Concrete Structures"| D1["Engineering Department\n(SLA: 48 Hours)"]
+        C -->|"Damaged Electrical Poles"| D2["Electrical Department\n(SLA: 24 Hours)"]
+        C -->|"Damaged Road Signs"| D3["Road Safety Department\n(SLA: 48 Hours)"]
+        C -->|"Dead Animals Pollution"| D4["Public Health Department\n(SLA: 12 Hours)"]
+        C -->|"Fallen Trees"| D5["Horticulture Department\n(SLA: 48 Hours)"]
+        C -->|"Garbage"| D6["Sanitation Department\n(SLA: 12 Hours)"]
+        C -->|"Illegal Parking"| D7["Traffic Department\n(SLA: 48 Hours)"]
+        C -->|"Potholes and Road Cracks"| D8["Road Safety Department\n(SLA: 24 Hours)"]
+    end
+
+    MunicipalRouting --> E["Query Active Department Supervisor\n(UserRepository.findByRoleAndDepartmentId)"]
+
+    E -->|"Supervisor Found"| F["Status: FORWARDED\nMethod: AUTO_ML\nAssigned Supervisor Set\nDispatch Push Notification"]
+    E -->|"No Supervisor Found"| G["Status: SUBMITTED\nMethod: MANUAL_REVIEW_NO_SUPERVISOR\nDepartment Set\nSent to Admin Queue"]
+
+    G --> AdminAction["Admin Manual Intervention\n(PATCH /api/admin/complaints/{id}/manual-assign)"]
+    AdminAction --> F

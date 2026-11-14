@@ -69,4 +69,14 @@ public class ComplaintResponse {
     private Boolean requiresManualReview;
     private String adminReviewReason;
     private LocalDateTime assignedAt;
+
+    // Admin manual review & classification lifecycle tracking
+    private String reviewStatus;
+    private String classificationStatus;
+    private String classificationSource;
+    private Double binaryConfidence;
+    private String adminReviewedBy;
+    private LocalDateTime adminReviewedAt;
+    private String adminReviewRemarks;
+    private String adminRejectionReason;
 }

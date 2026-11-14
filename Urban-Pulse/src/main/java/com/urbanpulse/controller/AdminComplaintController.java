@@ -1,6 +1,8 @@
 package com.urbanpulse.controller;
 
 import com.urbanpulse.dto.AdminManualAssignRequest;
+import com.urbanpulse.dto.AdminReviewApproveRequest;
+import com.urbanpulse.dto.AdminReviewRejectRequest;
 import com.urbanpulse.dto.ComplaintResponse;
 import com.urbanpulse.dto.ForwardComplaintRequest;
 import com.urbanpulse.service.ComplaintService;
@@ -32,6 +34,33 @@ public class AdminComplaintController {
     public ResponseEntity<List<ComplaintResponse>> getAdminComplaints() {
         List<ComplaintResponse> complaints = complaintService.getAdminComplaints();
         return ResponseEntity.ok(complaints);
+    }
+
+    @GetMapping("/pending-review")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<ComplaintResponse>> getPendingReviewComplaints() {
+        List<ComplaintResponse> complaints = complaintService.getPendingReviewComplaints();
+        return ResponseEntity.ok(complaints);
+    }
+
+    @PatchMapping("/{id}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ComplaintResponse> approveComplaint(@PathVariable Long id,
+                                                              @Valid @RequestBody AdminReviewApproveRequest request,
+                                                              Authentication authentication) {
+        String adminMobile = authentication.getName();
+        ComplaintResponse response = complaintService.approveNonCivicComplaint(id, request, adminMobile);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{id}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ComplaintResponse> rejectComplaint(@PathVariable Long id,
+                                                             @Valid @RequestBody AdminReviewRejectRequest request,
+                                                             Authentication authentication) {
+        String adminMobile = authentication.getName();
+        ComplaintResponse response = complaintService.rejectNonCivicComplaint(id, request, adminMobile);
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/{id}/forward")

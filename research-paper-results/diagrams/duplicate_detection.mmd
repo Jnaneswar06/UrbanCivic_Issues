@@ -1,0 +1,24 @@
+flowchart TD
+    Start["Citizen Initiates Issue Report\n(GPS Coordinates: lat_c, lon_c\nIssue Category: C)"] --> Query["Query Active Complaints\nSELECT * FROM complaints WHERE issue_type = C\nAND status IN ('SUBMITTED','FORWARDED','ASSIGNED','IN_PROGRESS')"]
+
+    Query --> Loop["Iterate Over Candidate Complaints (i)"]
+    Loop --> Haversine["Calculate Haversine Distance (d_i)\na = sin²(Δlat/2) + cos(lat1)cos(lat2)sin²(Δlon/2)\nc = 2 · atan2(√a, √(1-a))\nd_i = 6,371,000 · c (meters)"]
+
+    Haversine --> Check{"d_i ≤ (radius + 1.0m tolerance) ?\n(Default: 30m + 1m = 31m)"}
+
+    Check -->|"YES (Within Proximity)"| Match["Add Candidate to Duplicate Matches List\nCompute current joinCount\nCheck if citizen is already joined or original reporter"]
+    Check -->|"NO (Outside Radius)"| Skip["Discard Candidate"]
+
+    Match --> Next{"More Candidates ?"}
+    Skip --> Next
+
+    Next -->|"YES"| Loop
+    Next -->|"NO"| Sort["Sort Matches:\n1. Active complaints first\n2. Shortest distance d_i ascending\n3. Newest createdAt descending"]
+
+    Sort --> Result{"Matches List Empty ?"}
+    Result -->|"YES (No Duplicates)"| NewFlow["Proceed with New Complaint Submission Flow"]
+    Result -->|"NO (Duplicates Found)"| UI["Present Duplicate Alert Modal in Mobile UI\nDisplay map markers, photos, distance, joinCount"]
+
+    UI --> UserDecision{"Citizen Action"}
+    UserDecision -->|"Tap 'Join Existing Issue'"| JoinCall["POST /api/complaints/{id}/join\n• Insert into complaint_participants\n• Increment participant count\n• Avoid duplicate ticket creation"]
+    UserDecision -->|"Tap 'Report as New Anyway'"| NewFlow

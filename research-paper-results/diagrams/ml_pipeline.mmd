@@ -1,0 +1,22 @@
+flowchart TD
+    A["Input Image (RGB)"] --> B["Preprocessing: Resize to 224x224x3\nFloat32 pixel array"]
+    B --> C["Stage 1: Binary Relevance Gatekeeper\nurbanpulse_binary_v2_best.keras\nMobileNetV2 Backbone (Frozen) + Dense(1, Sigmoid)"]
+    C --> D["Sigmoid Activation\nOutput: P(NOT_CIVIC_ISSUE)"]
+    D --> E{"P(NOT_CIVIC) ≥ 0.50 ?"}
+
+    E -->|"YES (Non-Civic / Irrelevant)"| F["Rejection Decision\n• isCivicIssue = false\n• binaryPrediction = 'NOT_CIVIC_ISSUE'\n• Status = REJECTED\n• Flagged for Admin Review\n• Terminate ML Pipeline"]
+
+    E -->|"NO (Civic Grievance Confirmed)"| G["Pass to Stage 2\n• isCivicIssue = true\n• binaryPrediction = 'CIVIC_ISSUE'"]
+
+    G --> H["Stage 2: 8-Class Multi-class Classifier\nurbanpulse_8class_pothole_stage1.keras\nMobileNetV2 Backbone + Dense(8, Softmax)"]
+    H --> I["Softmax Distribution across 8 Classes"]
+    I --> J["Argmax Extraction\npredictedClass = class_names[idx]\nconfidence = max(P)"]
+
+    J --> K{"Confidence > 0.50 ?"}
+
+    K -->|"YES (High Confidence)"| L["Canonicalize Category\nCategoryDepartmentMappingService\nFind Responsible Municipal Department"]
+    L --> M{"Department & Supervisor Exist in DB ?"}
+    M -->|"YES"| N["Automated Department Dispatch\n• Status = FORWARDED\n• assignmentMethod = 'AUTO_ML'\n• Assign Department Supervisor\n• Dispatch FCM Push Notifications"]
+    M -->|"NO"| O["Manual Review Escalation\n• Status = SUBMITTED\n• requiresManualReview = true\n• Reason: Missing Dept or Supervisor"]
+
+    K -->|"NO (Confidence ≤ 0.50)"| P["Manual Review Escalation\n• Status = SUBMITTED\n• requiresManualReview = true\n• assignmentMethod = 'MANUAL_REVIEW_LOW_CONFIDENCE'"]

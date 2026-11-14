@@ -1,0 +1,16 @@
+metric_category,metric_name,value
+Stage 1 Binary,Total Evaluated,4850
+Stage 1 Binary,Civic Correctly Accepted,3792
+Stage 1 Binary,Civic Falsely Rejected,158
+Stage 1 Binary,Non-Civic Correctly Rejected,891
+Stage 1 Binary,Non-Civic Falsely Accepted,9
+Stage 1 Binary,Binary Accuracy,96.56%
+Stage 2 Multiclass,Images Received,3801
+Stage 2 Multiclass,Correctly Classified Civic,3616
+Stage 2 Multiclass,Misclassified Civic,176
+Stage 2 Multiclass,Accuracy on Accepted Civic,95.37%
+Stage 3 Routing,Auto-Routed Correct,3428
+Stage 3 Routing,Auto-Routed Incorrect,93
+Stage 3 Routing,Manual Review (Low Confidence),280
+End-to-End System,Overall System Accuracy,94.82%
+End-to-End System,Critical Misdispatch Rate,1.92%

@@ -56,6 +56,14 @@ export interface ComplaintData {
   binaryPrediction?: string;
   notCivicProbability?: number;
   civicProbability?: number;
+  reviewStatus?: string;
+  classificationStatus?: string;
+  classificationSource?: string;
+  binaryConfidence?: number;
+  adminReviewedBy?: string;
+  adminReviewedAt?: string;
+  adminReviewRemarks?: string;
+  adminRejectionReason?: string;
 }
 
 export interface CreateComplaintPayload {

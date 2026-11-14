@@ -55,7 +55,19 @@ class TwoStagePipelineTests(unittest.TestCase):
         self.assertIn("error", json_data)
         print("[TEST 03 PASSED] Missing file field returns HTTP 400.")
 
-    def test_04_mock_binary_rejection_halts_stage_2(self):
+    def test_04_corrupted_image_returns_400(self):
+        corrupted_bytes = io.BytesIO(b"NotAJpegOrPngImageFileHeaderGarbageContent1234567890")
+        response = self.client.post(
+            "/predict",
+            data={"file": (corrupted_bytes, "corrupt.jpg")},
+            content_type="multipart/form-data"
+        )
+        self.assertEqual(response.status_code, 400)
+        json_data = response.get_json()
+        self.assertIn("error", json_data)
+        print("[TEST 04 PASSED] Corrupted image rejected with HTTP 400.")
+
+    def test_05_mock_binary_rejection_halts_stage_2(self):
         """
         Verify that when Stage 1 outputs not_civic_prob >= 0.50,
         Stage 2 is NEVER called, isCivicIssue is False, and predictedClass is None.
@@ -92,12 +104,12 @@ class TwoStagePipelineTests(unittest.TestCase):
             self.assertIsNone(res["predictedClass"])
             self.assertEqual(res["probabilities"], [])
             self.assertIn("does not appear to contain a civic issue", res["message"])
-            print("[TEST 04 PASSED] Binary rejection halts pipeline; Stage 2 was not executed.")
+            print("[TEST 05 PASSED] Binary rejection halts pipeline; Stage 2 was not executed.")
         finally:
             app.binary_model = original_binary_model
             app.classifier_model = original_classifier_model
 
-    def test_05_mock_civic_issue_executes_stage_2(self):
+    def test_06_mock_civic_issue_executes_stage_2(self):
         """
         Verify that when Stage 1 outputs not_civic_prob < 0.50,
         Stage 2 executes and returns the predicted civic class.
@@ -136,16 +148,15 @@ class TwoStagePipelineTests(unittest.TestCase):
             self.assertEqual(res["predictedClass"], "Potholes and RoadCracks")
             self.assertAlmostEqual(res["confidence"], 0.93, places=2)
             self.assertEqual(len(res["probabilities"]), 8)
-            print("[TEST 05 PASSED] Stage 1 pass allowed Stage 2 to classify civic issue.")
+            print("[TEST 06 PASSED] Stage 1 pass allowed Stage 2 to classify civic issue.")
         finally:
             app.binary_model = original_binary_model
             app.classifier_model = original_classifier_model
 
-    def test_06_real_model_inference_with_actual_image(self):
+    def test_07_real_model_inference_with_actual_civic_image(self):
         """
-        Run actual end-to-end inference using real trained weights on a real uploaded image.
+        Run actual end-to-end inference using real trained weights on a real uploaded civic image.
         """
-        # Look for an existing uploaded complaint image
         uploads_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "Urban-Pulse", "uploads"))
         if os.path.exists(uploads_dir):
             jpgs = [os.path.join(uploads_dir, f) for f in os.listdir(uploads_dir) if f.lower().endswith((".jpg", ".png"))]
@@ -161,11 +172,29 @@ class TwoStagePipelineTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 200)
                 res = response.get_json()
-                self.assertIn("isCivicIssue", res)
-                self.assertIn("binaryPrediction", res)
-                self.assertIn("classificationStatus", res)
-                print(f"[TEST 06 PASSED] Real image inference completed: isCivicIssue={res['isCivicIssue']}, stage={res['stage']}, status={res['classificationStatus']}")
+                self.assertTrue(res["isCivicIssue"])
+                self.assertEqual(res["binaryPrediction"], "CIVIC_ISSUE")
+                self.assertEqual(res["classificationStatus"], "CLASSIFIED")
+                self.assertIsNotNone(res["predictedClass"])
+                print(f"[TEST 07 PASSED] Real image inference completed: isCivicIssue={res['isCivicIssue']}, class={res['predictedClass']}, confidence={res['confidence']:.4f}")
+
+    def test_08_real_model_inference_with_non_civic_image(self):
+        """
+        Run actual end-to-end inference on a non-civic image (solid red card).
+        """
+        red_bytes = self.create_test_image_bytes(color=(255, 0, 0))
+        response = self.client.post(
+            "/predict",
+            data={"file": (red_bytes, "solid_red.jpg")},
+            content_type="multipart/form-data"
+        )
+        self.assertEqual(response.status_code, 200)
+        res = response.get_json()
+        self.assertFalse(res["isCivicIssue"])
+        self.assertEqual(res["binaryPrediction"], "NOT_CIVIC_ISSUE")
+        self.assertGreaterEqual(res["notCivicProbability"], 0.50)
+        self.assertIsNone(res["predictedClass"])
+        print(f"[TEST 08 PASSED] Non-civic image halted at Stage 1: P(NOT_CIVIC)={res['notCivicProbability']:.4f}")
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { getAdminComplaints, forwardComplaint, manualAssignComplaint, getDepartments, createStaffUser, createDepartment } from '../services/apiService';
+import {
+  getAdminComplaints,
+  forwardComplaint,
+  manualAssignComplaint,
+  approveComplaint,
+  rejectComplaint,
+  getDepartments,
+  createStaffUser,
+  createDepartment
+} from '../services/apiService';
 
 const CANONICAL_CATEGORIES = [
   'Damaged Concrete Structures',
@@ -12,6 +21,17 @@ const CANONICAL_CATEGORIES = [
   'Potholes and Road Cracks',
 ];
 
+const CATEGORY_TO_DEPARTMENT = {
+  'Damaged Concrete Structures': 'Engineering Department',
+  'Damaged Electrical Poles': 'Electrical Department',
+  'Damaged Road Signs': 'Road Safety Department',
+  'Dead Animals Pollution': 'Public Health & Sanitation Department',
+  'Fallen Trees': 'Parks & Horticulture Department',
+  'Garbage': 'Sanitation Department',
+  'Illegal Parking': 'Traffic & Parking Enforcement',
+  'Potholes and Road Cracks': 'Road Safety Department',
+};
+
 export default function AdminView({ idToken, user }) {
   const [complaints, setComplaints] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -20,17 +40,33 @@ export default function AdminView({ idToken, user }) {
   const [actionLoading, setActionLoading] = useState({});
   const [message, setMessage] = useState(null);
 
-  // Filters
+  // Active top-level section: 'ALL_GRIEVANCES' | 'NON_CIVIC_REVIEW'
+  const [activeSection, setActiveSection] = useState('ALL_GRIEVANCES');
+
+  // Filters for All Grievances
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [slaFilter, setSlaFilter] = useState('ALL');
   const [deptFilter, setDeptFilter] = useState('ALL');
   const [issueTypeFilter, setIssueTypeFilter] = useState('ALL');
   const [reviewFilter, setReviewFilter] = useState('ALL'); // 'ALL' | 'REVIEW_ONLY'
 
-  // Manual review modal state
+  // Filter for Non-Civic Review section
+  const [nonCivicFilter, setNonCivicFilter] = useState('PENDING'); // 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL'
+
+  // Manual review modal state (general/legacy)
   const [reviewModalComplaint, setReviewModalComplaint] = useState(null);
   const [reviewForm, setReviewForm] = useState({ departmentId: '', supervisorMobile: '', category: '', remarks: '' });
   const [reviewLoading, setReviewLoading] = useState(false);
+
+  // Dedicated Action A: Approve Non-Civic Modal
+  const [approveModalComplaint, setApproveModalComplaint] = useState(null);
+  const [approveForm, setApproveForm] = useState({ category: 'Potholes and Road Cracks', remarks: '', departmentId: '' });
+  const [approveLoading, setApproveLoading] = useState(false);
+
+  // Dedicated Action B: Reject Non-Civic Modal
+  const [rejectModalComplaint, setRejectModalComplaint] = useState(null);
+  const [rejectForm, setRejectForm] = useState({ rejectionReason: '', remarks: '' });
+  const [rejectLoading, setRejectLoading] = useState(false);
 
   // Timeline modal state
   const [historyModalComplaint, setHistoryModalComplaint] = useState(null);
@@ -127,6 +163,96 @@ export default function AdminView({ idToken, user }) {
     }
   };
 
+  // Open Action A: Approve Modal
+  const openApproveModal = (complaint) => {
+    const initialCategory = 'Potholes and Road Cracks';
+    const deptName = CATEGORY_TO_DEPARTMENT[initialCategory];
+    const matchedDept = departments.find(d => d.name.toLowerCase() === deptName?.toLowerCase());
+
+    setApproveModalComplaint(complaint);
+    setApproveForm({
+      category: initialCategory,
+      remarks: '',
+      departmentId: matchedDept ? String(matchedDept.id) : '',
+    });
+  };
+
+  const handleCategoryChangeInApprove = (selectedCategory) => {
+    const deptName = CATEGORY_TO_DEPARTMENT[selectedCategory];
+    const matchedDept = departments.find(d => d.name.toLowerCase() === deptName?.toLowerCase());
+    setApproveForm(prev => ({
+      ...prev,
+      category: selectedCategory,
+      departmentId: matchedDept ? String(matchedDept.id) : prev.departmentId
+    }));
+  };
+
+  const handleApproveSubmit = async (e) => {
+    e.preventDefault();
+    if (!approveForm.category) {
+      setMessage({ type: 'error', text: 'Please select a civic category.' });
+      return;
+    }
+
+    setApproveLoading(true);
+    setMessage(null);
+
+    try {
+      const updated = await approveComplaint(idToken, approveModalComplaint.id, {
+        category: approveForm.category.trim(),
+        remarks: approveForm.remarks?.trim() || null,
+        departmentId: approveForm.departmentId ? Number(approveForm.departmentId) : null,
+      });
+      setMessage({
+        type: 'success',
+        text: `✅ Complaint ${updated.complaintNumber} approved as "${updated.predictedCategory}" and forwarded to ${updated.departmentName}!`,
+      });
+      setApproveModalComplaint(null);
+      await loadData();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  // Open Action B: Reject Modal
+  const openRejectModal = (complaint) => {
+    setRejectModalComplaint(complaint);
+    setRejectForm({
+      rejectionReason: '',
+      remarks: '',
+    });
+  };
+
+  const handleRejectSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectForm.rejectionReason.trim()) {
+      setMessage({ type: 'error', text: 'Please enter a rejection reason.' });
+      return;
+    }
+
+    setRejectLoading(true);
+    setMessage(null);
+
+    try {
+      const updated = await rejectComplaint(idToken, rejectModalComplaint.id, {
+        rejectionReason: rejectForm.rejectionReason.trim(),
+        remarks: rejectForm.remarks?.trim() || null,
+      });
+      setMessage({
+        type: 'success',
+        text: `Complaint ${updated.complaintNumber} marked as REJECTED (${updated.adminRejectionReason}).`,
+      });
+      setRejectModalComplaint(null);
+      await loadData();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setRejectLoading(false);
+    }
+  };
+
   const handleCreateStaff = async (e) => {
     e.preventDefault();
     if (!staffForm.mobileNumber || staffForm.mobileNumber.length !== 10) {
@@ -193,6 +319,7 @@ export default function AdminView({ idToken, user }) {
   // Compute Task Summaries
   const totalCount = complaints.length;
   const manualReviewCount = complaints.filter(c => c.requiresManualReview).length;
+  const pendingNonCivicCount = complaints.filter(c => c.isCivicIssue === false && (c.status === 'PENDING_ADMIN_REVIEW' || c.status === 'SUBMITTED' || c.reviewStatus === 'PENDING_ADMIN_REVIEW')).length;
   const submittedCount = complaints.filter(c => c.status === 'SUBMITTED').length;
   const forwardedCount = complaints.filter(c => c.status === 'FORWARDED').length;
   const assignedCount = complaints.filter(c => c.status === 'ASSIGNED').length;
@@ -205,13 +332,29 @@ export default function AdminView({ idToken, user }) {
   const resolvedWithinSlaCount = complaints.filter(c => c.resolvedWithinSla === true).length;
   const resolvedOverdueCount = complaints.filter(c => c.resolvedWithinSla === false).length;
 
-  // Filtered complaints
+  // Filtered complaints for All Grievances
   const filteredComplaints = complaints.filter(c => {
     if (reviewFilter === 'REVIEW_ONLY' && !c.requiresManualReview) return false;
     if (statusFilter !== 'ALL' && c.status !== statusFilter) return false;
     if (slaFilter !== 'ALL' && c.slaStatus !== slaFilter) return false;
     if (deptFilter !== 'ALL' && String(c.departmentId) !== String(deptFilter)) return false;
     if (issueTypeFilter !== 'ALL' && c.issueType !== issueTypeFilter) return false;
+    return true;
+  });
+
+  // Non-civic complaints list for dedicated section
+  const nonCivicComplaints = complaints.filter(c => {
+    const isNonCivic = c.isCivicIssue === false || c.status === 'PENDING_ADMIN_REVIEW' || c.reviewStatus === 'PENDING_ADMIN_REVIEW';
+    if (!isNonCivic) return false;
+    if (nonCivicFilter === 'PENDING') {
+      return c.status === 'PENDING_ADMIN_REVIEW' || c.reviewStatus === 'PENDING_ADMIN_REVIEW' || (c.status === 'SUBMITTED' && c.requiresManualReview);
+    }
+    if (nonCivicFilter === 'APPROVED') {
+      return c.reviewStatus === 'ADMIN_APPROVED' || c.classificationSource === 'ADMIN_VERIFIED';
+    }
+    if (nonCivicFilter === 'REJECTED') {
+      return c.status === 'REJECTED' || c.reviewStatus === 'ADMIN_REJECTED';
+    }
     return true;
   });
 
@@ -272,9 +415,9 @@ export default function AdminView({ idToken, user }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#38BDF8' }}>Admin Civic Intelligence Center</h2>
-          <p style={{ fontSize: '13px', color: '#94A3B8' }}>Full lifecycle complaint monitoring, department routing, and SLA compliance</p>
+          <p style={{ fontSize: '13px', color: '#94A3B8' }}>Two-Stage ML Cascaded Pipeline Triage, Department Routing, and Lifecycle SLA Compliance</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={() => setShowDeptListModal(true)} className="btn-primary" style={{ backgroundColor: '#0284C7' }}>
             🏛️ View Departments ({departments.length})
           </button>
@@ -307,310 +450,867 @@ export default function AdminView({ idToken, user }) {
         </div>
       )}
 
-      {/* Task Summary & SLA Metric Counters */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '20px' }}>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
-          <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: '600' }}>TOTAL</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#F8FAFC' }}>{totalCount}</div>
-        </div>
-        <div
-          className="glass-card"
+      {/* Primary Section Switcher Tabs */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>
+        <button
+          onClick={() => setActiveSection('ALL_GRIEVANCES')}
           style={{
-            padding: '12px',
-            textAlign: 'center',
-            borderColor: manualReviewCount > 0 ? '#F59E0B' : '#475569',
-            backgroundColor: manualReviewCount > 0 ? 'rgba(245, 158, 11, 0.12)' : undefined,
-            cursor: 'pointer'
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: activeSection === 'ALL_GRIEVANCES' ? '1px solid #38BDF8' : '1px solid #334155',
+            backgroundColor: activeSection === 'ALL_GRIEVANCES' ? '#0369A1' : '#0F172A',
+            color: activeSection === 'ALL_GRIEVANCES' ? '#FFFFFF' : '#94A3B8',
+            fontWeight: '700',
+            fontSize: '14px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
           }}
-          onClick={() => setReviewFilter(reviewFilter === 'REVIEW_ONLY' ? 'ALL' : 'REVIEW_ONLY')}
-          title="Click to toggle filter for complaints requiring review"
         >
-          <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '700' }}>⚠️ REQUIRES REVIEW</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{manualReviewCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#F59E0B66' }}>
-          <div style={{ fontSize: '11px', color: '#F59E0B', fontWeight: '600' }}>SUBMITTED</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{submittedCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#3B82F666' }}>
-          <div style={{ fontSize: '11px', color: '#60A5FA', fontWeight: '600' }}>FORWARDED</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#93C5FD' }}>{forwardedCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#A855F766' }}>
-          <div style={{ fontSize: '11px', color: '#C084FC', fontWeight: '600' }}>ASSIGNED</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#E9D5FF' }}>{assignedCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#E879F966' }}>
-          <div style={{ fontSize: '11px', color: '#F0ABFC', fontWeight: '600' }}>IN PROGRESS</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#F5D0FE' }}>{inProgressCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#10B98166' }}>
-          <div style={{ fontSize: '11px', color: '#34D399', fontWeight: '600' }}>RESOLVED</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#6EE7B7' }}>{resolvedCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#10B98166' }}>
-          <div style={{ fontSize: '11px', color: '#34D399', fontWeight: '600' }}>ON TIME</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#34D399' }}>{onTimeCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#F59E0B66' }}>
-          <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '600' }}>DUE SOON</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{dueSoonCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#EF444466' }}>
-          <div style={{ fontSize: '11px', color: '#F87171', fontWeight: '600' }}>OVERDUE</div>
-          <div style={{ fontSize: '22px', fontWeight: '800', color: '#F87171' }}>{overdueCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
-          <div style={{ fontSize: '10px', color: '#94A3B8', fontWeight: '600' }}>RESOLVED (IN SLA)</div>
-          <div style={{ fontSize: '20px', fontWeight: '800', color: '#34D399' }}>{resolvedWithinSlaCount}</div>
-        </div>
-        <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
-          <div style={{ fontSize: '10px', color: '#94A3B8', fontWeight: '600' }}>RESOLVED (LATE)</div>
-          <div style={{ fontSize: '20px', fontWeight: '800', color: '#F87171' }}>{resolvedOverdueCount}</div>
-        </div>
+          📋 All Civic Grievances ({complaints.length})
+        </button>
+
+        <button
+          onClick={() => setActiveSection('NON_CIVIC_REVIEW')}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: activeSection === 'NON_CIVIC_REVIEW' ? '1px solid #F59E0B' : '1px solid #334155',
+            backgroundColor: activeSection === 'NON_CIVIC_REVIEW' ? '#78350F' : '#0F172A',
+            color: activeSection === 'NON_CIVIC_REVIEW' ? '#FDE68A' : '#FBBF24',
+            fontWeight: '700',
+            fontSize: '14px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          🛡️ Non-Civic Complaints - Admin Review
+          {pendingNonCivicCount > 0 && (
+            <span style={{
+              backgroundColor: '#EF4444',
+              color: '#FFFFFF',
+              borderRadius: '12px',
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: '800'
+            }}>
+              {pendingNonCivicCount} Pending
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Multi-Dimensional Filter Bar */}
-      <div className="glass-card" style={{ padding: '16px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Manual Review:</label>
-          <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px', borderColor: reviewFilter === 'REVIEW_ONLY' ? '#F59E0B' : undefined }} value={reviewFilter} onChange={(e) => setReviewFilter(e.target.value)}>
-            <option value="ALL">All Complaints</option>
-            <option value="REVIEW_ONLY">⚠️ Review Needed Only ({manualReviewCount})</option>
-          </select>
-        </div>
+      {activeSection === 'ALL_GRIEVANCES' ? (
+        <>
+          {/* Task Summary & SLA Metric Counters */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
+              <div style={{ fontSize: '11px', color: '#94A3B8', fontWeight: '600' }}>TOTAL</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#F8FAFC' }}>{totalCount}</div>
+            </div>
+            <div
+              className="glass-card"
+              style={{
+                padding: '12px',
+                textAlign: 'center',
+                borderColor: manualReviewCount > 0 ? '#F59E0B' : '#475569',
+                backgroundColor: manualReviewCount > 0 ? 'rgba(245, 158, 11, 0.12)' : undefined,
+                cursor: 'pointer'
+              }}
+              onClick={() => setReviewFilter(reviewFilter === 'REVIEW_ONLY' ? 'ALL' : 'REVIEW_ONLY')}
+              title="Click to toggle filter for complaints requiring review"
+            >
+              <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '700' }}>⚠️ REQUIRES REVIEW</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{manualReviewCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#F59E0B66' }}>
+              <div style={{ fontSize: '11px', color: '#F59E0B', fontWeight: '600' }}>SUBMITTED</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{submittedCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#3B82F666' }}>
+              <div style={{ fontSize: '11px', color: '#60A5FA', fontWeight: '600' }}>FORWARDED</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#93C5FD' }}>{forwardedCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#A855F766' }}>
+              <div style={{ fontSize: '11px', color: '#C084FC', fontWeight: '600' }}>ASSIGNED</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#E9D5FF' }}>{assignedCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#E879F966' }}>
+              <div style={{ fontSize: '11px', color: '#F0ABFC', fontWeight: '600' }}>IN PROGRESS</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#F5D0FE' }}>{inProgressCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#10B98166' }}>
+              <div style={{ fontSize: '11px', color: '#34D399', fontWeight: '600' }}>RESOLVED</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#6EE7B7' }}>{resolvedCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#10B98166' }}>
+              <div style={{ fontSize: '11px', color: '#34D399', fontWeight: '600' }}>ON TIME</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#34D399' }}>{onTimeCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#F59E0B66' }}>
+              <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '600' }}>DUE SOON</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#FBBF24' }}>{dueSoonCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center', borderColor: '#EF444466' }}>
+              <div style={{ fontSize: '11px', color: '#F87171', fontWeight: '600' }}>OVERDUE</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#F87171' }}>{overdueCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', color: '#94A3B8', fontWeight: '600' }}>RESOLVED (IN SLA)</div>
+              <div style={{ fontSize: '20px', fontWeight: '800', color: '#34D399' }}>{resolvedWithinSlaCount}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '12px', textAlign: 'center' }}>
+              <div style={{ fontSize: '10px', color: '#94A3B8', fontWeight: '600' }}>RESOLVED (LATE)</div>
+              <div style={{ fontSize: '20px', fontWeight: '800', color: '#F87171' }}>{resolvedOverdueCount}</div>
+            </div>
+          </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Status:</label>
-          <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="ALL">All Statuses</option>
-            <option value="SUBMITTED">SUBMITTED</option>
-            <option value="FORWARDED">FORWARDED</option>
-            <option value="ASSIGNED">ASSIGNED</option>
-            <option value="IN_PROGRESS">IN_PROGRESS</option>
-            <option value="RESOLVED">RESOLVED</option>
-          </select>
-        </div>
+          {/* Multi-Dimensional Filter Bar */}
+          <div className="glass-card" style={{ padding: '16px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Manual Review:</label>
+              <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px', borderColor: reviewFilter === 'REVIEW_ONLY' ? '#F59E0B' : undefined }} value={reviewFilter} onChange={(e) => setReviewFilter(e.target.value)}>
+                <option value="ALL">All Complaints</option>
+                <option value="REVIEW_ONLY">⚠️ Review Needed Only ({manualReviewCount})</option>
+              </select>
+            </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter SLA:</label>
-          <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)}>
-            <option value="ALL">All SLA Statuses</option>
-            <option value="ON_TIME">ON_TIME</option>
-            <option value="DUE_SOON">DUE_SOON</option>
-            <option value="OVERDUE">OVERDUE</option>
-            <option value="RESOLVED">RESOLVED</option>
-          </select>
-        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Status:</label>
+              <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="ALL">All Statuses</option>
+                <option value="SUBMITTED">SUBMITTED</option>
+                <option value="PENDING_ADMIN_REVIEW">PENDING_ADMIN_REVIEW</option>
+                <option value="FORWARDED">FORWARDED</option>
+                <option value="ASSIGNED">ASSIGNED</option>
+                <option value="IN_PROGRESS">IN_PROGRESS</option>
+                <option value="RESOLVED">RESOLVED</option>
+                <option value="REJECTED">REJECTED</option>
+              </select>
+            </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Department:</label>
-          <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
-            <option value="ALL">All Departments</option>
-            {departments.map(d => (
-              <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>
-            ))}
-          </select>
-        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter SLA:</label>
+              <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={slaFilter} onChange={(e) => setSlaFilter(e.target.value)}>
+                <option value="ALL">All SLA Statuses</option>
+                <option value="ON_TIME">ON_TIME</option>
+                <option value="DUE_SOON">DUE_SOON</option>
+                <option value="OVERDUE">OVERDUE</option>
+                <option value="RESOLVED">RESOLVED</option>
+              </select>
+            </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Issue Type:</label>
-          <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={issueTypeFilter} onChange={(e) => setIssueTypeFilter(e.target.value)}>
-            <option value="ALL">All Issue Types</option>
-            <option value="POTHOLE">POTHOLE</option>
-            <option value="GARBAGE">GARBAGE</option>
-            <option value="WATER_LEAK">WATER_LEAK</option>
-            <option value="DRAINAGE_ISSUE">DRAINAGE_ISSUE</option>
-            <option value="STREET_LIGHT_DAMAGE">STREET_LIGHT_DAMAGE</option>
-            <option value="INFRASTRUCTURE_DAMAGE">INFRASTRUCTURE_DAMAGE</option>
-            <option value="NONE">NONE</option>
-          </select>
-        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Department:</label>
+              <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
+                <option value="ALL">All Departments</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>
+                ))}
+              </select>
+            </div>
 
-        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
-          <span style={{ fontSize: '12px', color: '#94A3B8' }}>
-            Showing <strong>{filteredComplaints.length}</strong> of {complaints.length} complaints
-          </span>
-        </div>
-      </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8' }}>Filter Issue Type:</label>
+              <select className="input-field" style={{ padding: '6px 10px', fontSize: '12px' }} value={issueTypeFilter} onChange={(e) => setIssueTypeFilter(e.target.value)}>
+                <option value="ALL">All Issue Types</option>
+                <option value="POTHOLE">POTHOLE</option>
+                <option value="GARBAGE">GARBAGE</option>
+                <option value="WATER_LEAK">WATER_LEAK</option>
+                <option value="DRAINAGE_ISSUE">DRAINAGE_ISSUE</option>
+                <option value="STREET_LIGHT_DAMAGE">STREET_LIGHT_DAMAGE</option>
+                <option value="INFRASTRUCTURE_DAMAGE">INFRASTRUCTURE_DAMAGE</option>
+                <option value="NONE">NONE</option>
+              </select>
+            </div>
 
-      {/* Complaints Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px', color: '#94A3B8' }}>Loading Admin Complaints & Lifecycle Data...</div>
-      ) : filteredComplaints.length === 0 ? (
-        <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
-          No complaints match current filters.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
-          {filteredComplaints.map((item) => {
-            const forwardedAt = item.statusHistory?.find(h => h.newStatus === 'FORWARDED')?.changedAt;
-            const assignedAt = item.statusHistory?.find(h => h.newStatus === 'ASSIGNED')?.changedAt;
-            const inProgressAt = item.statusHistory?.find(h => h.newStatus === 'IN_PROGRESS')?.changedAt;
-            const resolvedAt = item.resolvedAt || item.statusHistory?.find(h => h.newStatus === 'RESOLVED')?.changedAt;
+            <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
+              <span style={{ fontSize: '12px', color: '#94A3B8' }}>
+                Showing <strong>{filteredComplaints.length}</strong> of {complaints.length} complaints
+              </span>
+            </div>
+          </div>
 
-            return (
-              <div key={item.id} className="glass-card" style={{ padding: '18px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '17px', fontWeight: '800', color: '#F8FAFC' }}>{item.complaintNumber}</span>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      {item.requiresManualReview && (
-                        <span style={{ backgroundColor: '#78350F', border: '1px solid #F59E0B', color: '#FDE68A', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px' }}>
-                          ⚠️ Review Needed
-                        </span>
+          {/* Complaints Grid */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#94A3B8' }}>Loading Admin Complaints & Lifecycle Data...</div>
+          ) : filteredComplaints.length === 0 ? (
+            <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+              No complaints match current filters.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
+              {filteredComplaints.map((item) => {
+                const forwardedAt = item.statusHistory?.find(h => h.newStatus === 'FORWARDED')?.changedAt;
+                const assignedAt = item.statusHistory?.find(h => h.newStatus === 'ASSIGNED')?.changedAt;
+                const inProgressAt = item.statusHistory?.find(h => h.newStatus === 'IN_PROGRESS')?.changedAt;
+                const resolvedAt = item.resolvedAt || item.statusHistory?.find(h => h.newStatus === 'RESOLVED')?.changedAt;
+
+                const isNonCivic = item.isCivicIssue === false || item.status === 'PENDING_ADMIN_REVIEW' || item.reviewStatus === 'PENDING_ADMIN_REVIEW';
+
+                return (
+                  <div key={item.id} className="glass-card" style={{
+                    padding: '18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    border: isNonCivic ? '1px solid rgba(245, 158, 11, 0.4)' : undefined,
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '17px', fontWeight: '800', color: '#F8FAFC' }}>{item.complaintNumber}</span>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {isNonCivic && (
+                            <span style={{ backgroundColor: '#78350F', border: '1px solid #F59E0B', color: '#FDE68A', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px' }}>
+                              🛡️ Non-Civic Review
+                            </span>
+                          )}
+                          {item.requiresManualReview && !isNonCivic && (
+                            <span style={{ backgroundColor: '#78350F', border: '1px solid #F59E0B', color: '#FDE68A', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px' }}>
+                              ⚠️ Review Needed
+                            </span>
+                          )}
+                          <span className={`badge badge-${item.status.toLowerCase()}`}>{item.status}</span>
+                          {getSlaBadge(item.slaStatus, item.remainingMinutes)}
+                          <span style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid #F59E0B', color: '#FBBF24', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px' }}>
+                            👥 {item.joinCount || 0} Joined
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Lifecycle Progression Indicator */}
+                      {getStepIndicator(item.status)}
+
+                      <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
+                        {/* Complaint photo */}
+                        <div style={{ flex: 1, height: '140px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#0F172A' }}>
+                          <img
+                            src={item.imageUrl.startsWith('/') ? `http://localhost:8080${item.imageUrl}` : item.imageUrl}
+                            alt="Issue"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                        </div>
+                        {/* Proof image if resolved */}
+                        {item.proofImageUrl && (
+                          <div style={{ flex: 1, height: '140px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#0F172A', border: '1px solid #10B981' }}>
+                            <img
+                              src={item.proofImageUrl.startsWith('/') ? `http://localhost:8080${item.proofImageUrl}` : item.proofImageUrl}
+                              alt="Proof"
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* AI Prediction & Routing Metadata Block */}
+                      <div style={{ backgroundColor: '#0B132B', border: '1px solid #1E293B', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', color: '#CBD5E1', marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <div>
+                            <strong>AI Triage: </strong>
+                            <span style={{ color: item.isCivicIssue === false ? '#F59E0B' : '#38BDF8', fontWeight: '700' }}>
+                              {item.isCivicIssue === false ? 'Stage 1: Non-Civic Issue' : (item.predictedCategory || 'Not Analyzed')}
+                            </span>
+                          </div>
+                          <div>
+                            <strong>Confidence: </strong>
+                            <span style={{ color: (item.confidenceScore || 0) > 0.5 ? '#34D399' : '#F87171', fontWeight: '800' }}>
+                              {item.confidenceScore != null ? (item.confidenceScore * 100).toFixed(1) + '%' : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#94A3B8' }}>
+                          Method: <span style={{ color: item.requiresManualReview ? '#FBBF24' : '#38BDF8' }}>{item.assignmentMethod || 'N/A'}</span>
+                          {item.modelVersion && ` | ${item.modelVersion}`}
+                        </div>
+                        {item.adminReviewReason && (
+                          <div style={{ color: '#F87171', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '3px 6px', borderRadius: '4px', marginTop: '4px' }}>
+                            ⚠️ <strong>Reason:</strong> {item.adminReviewReason}
+                          </div>
+                        )}
+                        {item.adminRejectionReason && (
+                          <div style={{ color: '#F87171', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '3px 6px', borderRadius: '4px', marginTop: '4px' }}>
+                            ❌ <strong>Rejection Reason:</strong> {item.adminRejectionReason}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Metadata Details */}
+                      <div style={{ fontSize: '12px', color: '#CBD5E1', display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '14px' }}>
+                        <div><strong>Issue:</strong> <span style={{ color: '#38BDF8' }}>{item.issueType}</span> (SLA: {item.slaHours}h)</div>
+                        <div><strong>Citizen:</strong> {item.citizenMobile} {item.citizenName ? `(${item.citizenName})` : ''}</div>
+                        <div><strong>Department:</strong> {item.departmentName || <span style={{ color: '#F59E0B' }}>Not Assigned</span>}</div>
+                        <div><strong>Supervisor:</strong> {item.supervisorName ? `${item.supervisorName} (${item.supervisorMobile})` : <span style={{ color: '#94A3B8' }}>None</span>}</div>
+                        <div><strong>Worker:</strong> {item.assignedWorkerName ? `${item.assignedWorkerName} (${item.assignedWorkerMobile})` : <span style={{ color: '#94A3B8' }}>None</span>}</div>
+                        <div>
+                          <strong>Location:</strong> 📍 Lat {item.latitude}, Lng {item.longitude}{' '}
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: '#38BDF8', textDecoration: 'underline', marginLeft: '6px' }}
+                          >
+                            Map ↗
+                          </a>
+                        </div>
+                        <div><strong>Citizens Joined:</strong> <span style={{ color: '#FBBF24', fontWeight: '700' }}>👥 {item.joinCount || 0} citizens participating</span></div>
+                        {item.slaDeadline && <div><strong>Deadline:</strong> {new Date(item.slaDeadline).toLocaleString()}</div>}
+                      </div>
+
+                      {/* Stage Timestamps */}
+                      <div style={{ backgroundColor: '#0F172A', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', color: '#94A3B8', display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '12px' }}>
+                        <div>🕒 <strong>Created:</strong> {new Date(item.createdAt).toLocaleString()}</div>
+                        {forwardedAt && <div>📨 <strong>Forwarded:</strong> {new Date(forwardedAt).toLocaleString()}</div>}
+                        {assignedAt && <div>👷 <strong>Assigned:</strong> {new Date(assignedAt).toLocaleString()}</div>}
+                        {inProgressAt && <div>⚙️ <strong>Started:</strong> {new Date(inProgressAt).toLocaleString()}</div>}
+                        {resolvedAt && <div>✅ <strong>Resolved:</strong> {new Date(resolvedAt).toLocaleString()} {item.resolvedWithinSla === true ? '(In SLA)' : item.resolvedWithinSla === false ? '(Overdue)' : ''}</div>}
+                      </div>
+                    </div>
+
+                    <div>
+                      {isNonCivic && (item.status === 'PENDING_ADMIN_REVIEW' || item.status === 'SUBMITTED') ? (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                          <button
+                            onClick={() => openApproveModal(item)}
+                            style={{
+                              flex: 1,
+                              padding: '8px',
+                              backgroundColor: '#059669',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#FFFFFF',
+                              fontWeight: '700',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ✅ Approve as Civic
+                          </button>
+                          <button
+                            onClick={() => openRejectModal(item)}
+                            style={{
+                              flex: 1,
+                              padding: '8px',
+                              backgroundColor: '#DC2626',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#FFFFFF',
+                              fontWeight: '700',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ❌ Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => openReviewModal(item)}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            backgroundColor: item.requiresManualReview ? '#D97706' : '#0284C7',
+                            border: 'none',
+                            borderRadius: '6px',
+                            color: '#FFFFFF',
+                            fontWeight: '700',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            marginBottom: '8px'
+                          }}
+                        >
+                          🛠️ {item.requiresManualReview ? 'Manual Review & Assign' : 'Reassign / Edit Department'}
+                        </button>
                       )}
-                      <span className={`badge badge-${item.status.toLowerCase()}`}>{item.status}</span>
-                      {getSlaBadge(item.slaStatus, item.remainingMinutes)}
-                      <span style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid #F59E0B', color: '#FBBF24', fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '12px' }}>
-                        👥 {item.joinCount || 0} Joined
-                      </span>
+
+                      <button
+                        onClick={() => setHistoryModalComplaint(item)}
+                        style={{ width: '100%', padding: '6px', background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#38BDF8', fontSize: '12px', cursor: 'pointer', marginBottom: '10px' }}
+                      >
+                        📜 View Complete Timeline ({item.statusHistory?.length || 0} events)
+                      </button>
+
+                      {item.status === 'SUBMITTED' && !isNonCivic && (
+                        <div style={{ borderTop: '1px solid #334155', paddingTop: '10px' }}>
+                          <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                            Forward to Department:
+                          </label>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <select
+                              className="input-field"
+                              style={{ flex: 1, fontSize: '12px' }}
+                              value={selectedDepts[item.id] || ''}
+                              onChange={(e) => setSelectedDepts({ ...selectedDepts, [item.id]: e.target.value })}
+                            >
+                              <option value="">{departments.length === 0 ? '-- No departments exist --' : '-- Select Department --'}</option>
+                              {departments.map((d) => (
+                                <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>
+                              ))}
+                            </select>
+                            <button
+                              className="btn-primary"
+                              disabled={actionLoading[item.id]}
+                              onClick={() => handleForward(item.id)}
+                              style={{ padding: '6px 12px', fontSize: '12px' }}
+                            >
+                              {actionLoading[item.id] ? '...' : 'Forward'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        /* DEDICATED SECTION: NON-CIVIC COMPLAINTS - ADMIN REVIEW */
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#FBBF24' }}>
+                🛡️ Non-Civic Complaints - Admin Review Triage Queue
+              </h3>
+              <p style={{ fontSize: '13px', color: '#94A3B8' }}>
+                Images flagged as non-civic by Stage 1 Binary Gatekeeper. Admin must manually approve into one of 8 civic categories or reject with remarks.
+              </p>
+            </div>
 
-                  {/* Lifecycle Progression Indicator */}
-                  {getStepIndicator(item.status)}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setNonCivicFilter('PENDING')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  border: nonCivicFilter === 'PENDING' ? '1px solid #F59E0B' : '1px solid #334155',
+                  backgroundColor: nonCivicFilter === 'PENDING' ? '#78350F' : '#0F172A',
+                  color: nonCivicFilter === 'PENDING' ? '#FDE68A' : '#94A3B8'
+                }}
+              >
+                ⚠️ Pending Review ({complaints.filter(c => (c.isCivicIssue === false || c.status === 'PENDING_ADMIN_REVIEW') && c.status !== 'FORWARDED' && c.status !== 'REJECTED').length})
+              </button>
+              <button
+                onClick={() => setNonCivicFilter('APPROVED')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  border: nonCivicFilter === 'APPROVED' ? '1px solid #10B981' : '1px solid #334155',
+                  backgroundColor: nonCivicFilter === 'APPROVED' ? '#065F46' : '#0F172A',
+                  color: nonCivicFilter === 'APPROVED' ? '#A7F3D0' : '#94A3B8'
+                }}
+              >
+                ✅ Approved by Admin
+              </button>
+              <button
+                onClick={() => setNonCivicFilter('REJECTED')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  border: nonCivicFilter === 'REJECTED' ? '1px solid #EF4444' : '1px solid #334155',
+                  backgroundColor: nonCivicFilter === 'REJECTED' ? '#7F1D1D' : '#0F172A',
+                  color: nonCivicFilter === 'REJECTED' ? '#FCA5A5' : '#94A3B8'
+                }}
+              >
+                ❌ Rejected
+              </button>
+              <button
+                onClick={() => setNonCivicFilter('ALL')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  border: nonCivicFilter === 'ALL' ? '1px solid #38BDF8' : '1px solid #334155',
+                  backgroundColor: nonCivicFilter === 'ALL' ? '#0369A1' : '#0F172A',
+                  color: nonCivicFilter === 'ALL' ? '#BAE6FD' : '#94A3B8'
+                }}
+              >
+                All Records
+              </button>
+            </div>
+          </div>
 
-                  <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
-                    {/* Complaint photo */}
-                    <div style={{ flex: 1, height: '140px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#0F172A' }}>
-                      <img
-                        src={item.imageUrl.startsWith('/') ? `http://localhost:8080${item.imageUrl}` : item.imageUrl}
-                        alt="Issue"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    </div>
-                    {/* Proof image if resolved */}
-                    {item.proofImageUrl && (
-                      <div style={{ flex: 1, height: '140px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#0F172A', border: '1px solid #10B981' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#94A3B8' }}>Loading Non-Civic Review Queue...</div>
+          ) : nonCivicComplaints.length === 0 ? (
+            <div className="glass-card" style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+              No complaints in this non-civic review filter.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '20px' }}>
+              {nonCivicComplaints.map((item) => {
+                const isPendingAction = item.status === 'PENDING_ADMIN_REVIEW' || (item.isCivicIssue === false && item.status !== 'FORWARDED' && item.status !== 'REJECTED');
+
+                return (
+                  <div key={item.id} className="glass-card" style={{
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    border: '1px solid #F59E0B66',
+                    backgroundColor: 'rgba(15, 23, 42, 0.85)'
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <span style={{ fontSize: '18px', fontWeight: '800', color: '#F8FAFC' }}>{item.complaintNumber}</span>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <span style={{
+                            backgroundColor: isPendingAction ? '#78350F' : item.status === 'REJECTED' ? '#7F1D1D' : '#065F46',
+                            color: isPendingAction ? '#FDE68A' : item.status === 'REJECTED' ? '#FCA5A5' : '#A7F3D0',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            padding: '3px 10px',
+                            borderRadius: '12px'
+                          }}>
+                            {isPendingAction ? 'PENDING ADMIN REVIEW' : item.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Image Preview */}
+                      <div style={{ height: '180px', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#0B132B', marginBottom: '14px', border: '1px solid #334155' }}>
                         <img
-                          src={item.proofImageUrl.startsWith('/') ? `http://localhost:8080${item.proofImageUrl}` : item.proofImageUrl}
-                          alt="Proof"
+                          src={item.imageUrl.startsWith('/') ? `http://localhost:8080${item.imageUrl}` : item.imageUrl}
+                          alt="Non-Civic Submission"
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
                       </div>
-                    )}
-                  </div>
 
-                  {/* AI Prediction & Routing Metadata Block */}
-                  <div style={{ backgroundColor: '#0B132B', border: '1px solid #1E293B', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', color: '#CBD5E1', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <div><strong>AI Category:</strong> <span style={{ color: '#38BDF8', fontWeight: '700' }}>{item.predictedCategory || 'Not Analyzed'}</span></div>
-                      <div>
-                        <strong>Confidence: </strong>
-                        <span style={{ color: (item.confidenceScore || 0) > 0.5 ? '#34D399' : '#F87171', fontWeight: '800' }}>
-                          {item.confidenceScore != null ? (item.confidenceScore * 100).toFixed(1) + '%' : 'N/A'}
-                        </span>
+                      {/* Stage 1 Binary Diagnosis Box */}
+                      <div style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', border: '1px solid #F59E0B66', padding: '10px 12px', borderRadius: '6px', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: '700', color: '#FBBF24' }}>
+                            🔍 Stage 1 Binary Gatekeeper:
+                          </span>
+                          <span style={{ fontSize: '11px', fontWeight: '800', color: '#F87171' }}>
+                            NOT_CIVIC_ISSUE
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#CBD5E1' }}>
+                          Non-Civic Probability: <strong>{item.notCivicProbability != null ? (item.notCivicProbability * 100).toFixed(1) + '%' : 'N/A'}</strong>
+                          {item.civicProbability != null && ` | Civic: ${(item.civicProbability * 100).toFixed(1)}%`}
+                        </div>
+                        {item.adminReviewReason && (
+                          <div style={{ fontSize: '11px', color: '#FDE68A', marginTop: '6px' }}>
+                            {item.adminReviewReason}
+                          </div>
+                        )}
+                        {item.adminRejectionReason && (
+                          <div style={{ fontSize: '11px', color: '#F87171', marginTop: '6px' }}>
+                            ❌ Rejection Reason: <strong>{item.adminRejectionReason}</strong>
+                          </div>
+                        )}
+                        {item.adminReviewRemarks && (
+                          <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px', fontStyle: 'italic' }}>
+                            Remarks: "{item.adminReviewRemarks}"
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Detailed Metadata */}
+                      <div style={{ fontSize: '12px', color: '#CBD5E1', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
+                        <div><strong>Citizen Mobile:</strong> {item.citizenMobile} {item.citizenName ? `(${item.citizenName})` : ''}</div>
+                        <div><strong>Submitted At:</strong> {new Date(item.createdAt).toLocaleString()}</div>
+                        <div>
+                          <strong>GPS Coordinates:</strong> 📍 {item.latitude}, {item.longitude}{' '}
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${item.latitude},${item.longitude}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: '#38BDF8', textDecoration: 'underline', marginLeft: '6px' }}
+                          >
+                            Open in Google Maps ↗
+                          </a>
+                        </div>
+                        <div>
+                          <strong>Department:</strong> {item.departmentName ? (
+                            <span style={{ color: '#34D399', fontWeight: '700' }}>{item.departmentName}</span>
+                          ) : (
+                            <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>Unassigned (Pending Review)</span>
+                          )}
+                        </div>
+                        {item.predictedCategory && (
+                          <div>
+                            <strong>Approved Category:</strong> <span style={{ color: '#38BDF8', fontWeight: '700' }}>{item.predictedCategory}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div style={{ fontSize: '10px', color: '#94A3B8' }}>
-                      Method: <span style={{ color: item.requiresManualReview ? '#FBBF24' : '#38BDF8' }}>{item.assignmentMethod || 'N/A'}</span>
-                      {item.modelVersion && ` | ${item.modelVersion}`}
+
+                    <div>
+                      {isPendingAction ? (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button
+                            onClick={() => openApproveModal(item)}
+                            style={{
+                              flex: 1,
+                              padding: '10px',
+                              backgroundColor: '#059669',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#FFFFFF',
+                              fontWeight: '700',
+                              fontSize: '13px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ✅ Approve as Civic
+                          </button>
+                          <button
+                            onClick={() => openRejectModal(item)}
+                            style={{
+                              flex: 1,
+                              padding: '10px',
+                              backgroundColor: '#DC2626',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#FFFFFF',
+                              fontWeight: '700',
+                              fontSize: '13px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ❌ Reject Complaint
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                            Action completed by: {item.adminReviewedBy || 'Admin'}
+                          </span>
+                          <button
+                            onClick={() => setHistoryModalComplaint(item)}
+                            style={{ padding: '6px 12px', background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#38BDF8', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            View Timeline
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    {item.adminReviewReason && (
-                      <div style={{ color: '#F87171', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '3px 6px', borderRadius: '4px', marginTop: '4px' }}>
-                        ⚠️ <strong>Reason:</strong> {item.adminReviewReason}
-                      </div>
-                    )}
                   </div>
-
-                  {/* Metadata Details */}
-                  <div style={{ fontSize: '12px', color: '#CBD5E1', display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '14px' }}>
-                    <div><strong>Issue:</strong> <span style={{ color: '#38BDF8' }}>{item.issueType}</span> (SLA: {item.slaHours}h)</div>
-                    <div><strong>Citizen:</strong> {item.citizenMobile} {item.citizenName ? `(${item.citizenName})` : ''}</div>
-                    <div><strong>Department:</strong> {item.departmentName || <span style={{ color: '#F59E0B' }}>Not Assigned</span>}</div>
-                    <div><strong>Supervisor:</strong> {item.supervisorName ? `${item.supervisorName} (${item.supervisorMobile})` : <span style={{ color: '#94A3B8' }}>None</span>}</div>
-                    <div><strong>Worker:</strong> {item.assignedWorkerName ? `${item.assignedWorkerName} (${item.assignedWorkerMobile})` : <span style={{ color: '#94A3B8' }}>None</span>}</div>
-                    <div><strong>Location:</strong> 📍 Lat {item.latitude}, Lng {item.longitude}</div>
-                    <div><strong>Citizens Joined:</strong> <span style={{ color: '#FBBF24', fontWeight: '700' }}>👥 {item.joinCount || 0} citizens participating</span></div>
-                    {item.slaDeadline && <div><strong>Deadline:</strong> {new Date(item.slaDeadline).toLocaleString()}</div>}
-                  </div>
-
-                  {/* Stage Timestamps */}
-                  <div style={{ backgroundColor: '#0F172A', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', color: '#94A3B8', display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '12px' }}>
-                    <div>🕒 <strong>Created:</strong> {new Date(item.createdAt).toLocaleString()}</div>
-                    {forwardedAt && <div>📨 <strong>Forwarded:</strong> {new Date(forwardedAt).toLocaleString()}</div>}
-                    {assignedAt && <div>👷 <strong>Assigned:</strong> {new Date(assignedAt).toLocaleString()}</div>}
-                    {inProgressAt && <div>⚙️ <strong>Started:</strong> {new Date(inProgressAt).toLocaleString()}</div>}
-                    {resolvedAt && <div>✅ <strong>Resolved:</strong> {new Date(resolvedAt).toLocaleString()} {item.resolvedWithinSla === true ? '(In SLA)' : item.resolvedWithinSla === false ? '(Overdue)' : ''}</div>}
-                  </div>
-                </div>
-
-                <div>
-                  <button
-                    onClick={() => openReviewModal(item)}
-                    style={{
-                      width: '100%',
-                      padding: '8px',
-                      backgroundColor: item.requiresManualReview ? '#D97706' : '#0284C7',
-                      border: 'none',
-                      borderRadius: '6px',
-                      color: '#FFFFFF',
-                      fontWeight: '700',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      marginBottom: '8px'
-                    }}
-                  >
-                    🛠️ {item.requiresManualReview ? 'Manual Review & Assign' : 'Reassign / Edit Department'}
-                  </button>
-
-                  <button
-                    onClick={() => setHistoryModalComplaint(item)}
-                    style={{ width: '100%', padding: '6px', background: 'none', border: '1px solid #334155', borderRadius: '6px', color: '#38BDF8', fontSize: '12px', cursor: 'pointer', marginBottom: '10px' }}
-                  >
-                    📜 View Complete Timeline ({item.statusHistory?.length || 0} events)
-                  </button>
-
-                  {item.status === 'SUBMITTED' && (
-                    <div style={{ borderTop: '1px solid #334155', paddingTop: '10px' }}>
-                      <label style={{ fontSize: '11px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
-                        Forward to Department:
-                      </label>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <select
-                          className="input-field"
-                          style={{ flex: 1, fontSize: '12px' }}
-                          value={selectedDepts[item.id] || ''}
-                          onChange={(e) => setSelectedDepts({ ...selectedDepts, [item.id]: e.target.value })}
-                        >
-                          <option value="">{departments.length === 0 ? '-- No departments exist --' : '-- Select Department --'}</option>
-                          {departments.map((d) => (
-                            <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>
-                          ))}
-                        </select>
-                        <button
-                          className="btn-primary"
-                          disabled={actionLoading[item.id]}
-                          onClick={() => handleForward(item.id)}
-                          style={{ fontSize: '12px', padding: '6px 12px' }}
-                        >
-                          {actionLoading[item.id] ? 'Forwarding...' : 'FORWARD'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Staff Creation Modal */}
+      {/* Action A: Approve Non-Civic Complaint Modal */}
+      {approveModalComplaint && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '580px', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#34D399' }}>
+                ✅ Approve Non-Civic Complaint: {approveModalComplaint.complaintNumber}
+              </h3>
+              <button
+                onClick={() => setApproveModalComplaint(null)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '14px', marginBottom: '16px', backgroundColor: '#0F172A', padding: '12px', borderRadius: '8px' }}>
+              <div style={{ width: '120px', height: '100px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0 }}>
+                <img
+                  src={approveModalComplaint.imageUrl.startsWith('/') ? `http://localhost:8080${approveModalComplaint.imageUrl}` : approveModalComplaint.imageUrl}
+                  alt="Issue"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+              <div style={{ fontSize: '12px', color: '#CBD5E1', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div><strong>Citizen:</strong> {approveModalComplaint.citizenMobile}</div>
+                <div><strong>Stage 1 Result:</strong> <span style={{ color: '#F87171', fontWeight: '700' }}>NOT_CIVIC_ISSUE</span></div>
+                <div>
+                  <strong>Non-Civic Confidence: </strong>
+                  <span style={{ color: '#F59E0B', fontWeight: '700' }}>
+                    {approveModalComplaint.notCivicProbability != null ? (approveModalComplaint.notCivicProbability * 100).toFixed(1) + '%' : 'N/A'}
+                  </span>
+                </div>
+                <div><strong>Location:</strong> 📍 Lat {approveModalComplaint.latitude}, Lng {approveModalComplaint.longitude}</div>
+              </div>
+            </div>
+
+            <form onSubmit={handleApproveSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '700', color: '#34D399', display: 'block', marginBottom: '6px' }}>
+                  Select Canonical Civic Issue Category: *
+                </label>
+                <select
+                  className="input-field"
+                  style={{ width: '100%', borderColor: '#10B981' }}
+                  value={approveForm.category}
+                  onChange={(e) => handleCategoryChangeInApprove(e.target.value)}
+                  required
+                >
+                  {CANONICAL_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <span style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px', display: 'block' }}>
+                  Auto-routes to: <strong>{CATEGORY_TO_DEPARTMENT[approveForm.category] || 'General Department'}</strong>
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Target Department (Preselected):
+                </label>
+                <select
+                  className="input-field"
+                  style={{ width: '100%' }}
+                  value={approveForm.departmentId}
+                  onChange={(e) => setApproveForm({ ...approveForm, departmentId: e.target.value })}
+                >
+                  <option value="">-- Auto-Pick from Category --</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} {d.description ? `(${d.description})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Admin Approval Remarks / Justification:
+                </label>
+                <textarea
+                  className="input-field"
+                  rows={3}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  placeholder="e.g. Citizen captured genuine road damage; verified by Admin"
+                  value={approveForm.remarks}
+                  onChange={(e) => setApproveForm({ ...approveForm, remarks: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setApproveModalComplaint(null)}
+                  style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid #475569', borderRadius: '6px', color: '#94A3B8', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={approveLoading}
+                  style={{ flex: 2, padding: '10px', backgroundColor: '#059669' }}
+                >
+                  {approveLoading ? 'Routing...' : 'Confirm Approval & Forward to Supervisor'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Action B: Reject Non-Civic Complaint Modal */}
+      {rejectModalComplaint && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '520px', padding: '24px', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #EF4444' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#F87171' }}>
+                ❌ Reject Non-Civic Complaint: {rejectModalComplaint.complaintNumber}
+              </h3>
+              <button
+                onClick={() => setRejectModalComplaint(null)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRejectSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '700', color: '#F87171', display: 'block', marginBottom: '6px' }}>
+                  Rejection Reason: *
+                </label>
+                <input
+                  type="text"
+                  className="input-field"
+                  style={{ width: '100%', borderColor: '#EF4444' }}
+                  placeholder="e.g. Non-civic image: Personal photo, document, or spam"
+                  value={rejectForm.rejectionReason}
+                  onChange={(e) => setRejectForm({ ...rejectForm, rejectionReason: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Additional Remarks (Optional):
+                </label>
+                <textarea
+                  className="input-field"
+                  rows={3}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  placeholder="Additional context for audit trail..."
+                  value={rejectForm.remarks}
+                  onChange={(e) => setRejectForm({ ...rejectForm, remarks: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setRejectModalComplaint(null)}
+                  style={{ flex: 1, padding: '10px', background: 'none', border: '1px solid #475569', borderRadius: '6px', color: '#94A3B8', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={rejectLoading}
+                  style={{ flex: 2, padding: '10px', backgroundColor: '#DC2626' }}
+                >
+                  {rejectLoading ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Staff User Creation Modal */}
       {showStaffModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ width: '100%', maxWidth: '420px', padding: '24px' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC', marginBottom: '6px' }}>
-              Create New {showStaffModal === 'SUPERVISOR' ? 'Supervisor' : 'Worker'}
-            </h3>
-            <p style={{ fontSize: '12px', color: '#94A3B8', marginBottom: '16px' }}>
-              Provision an official staff account with department assignment.
-            </p>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC' }}>
+                Create New {showStaffModal === 'SUPERVISOR' ? 'Supervisor' : 'Worker'}
+              </h3>
+              <button
+                onClick={() => setShowStaffModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
 
-            <form onSubmit={handleCreateStaff} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <form onSubmit={handleCreateStaff} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={{ fontSize: '12px', color: '#CBD5E1', display: 'block', marginBottom: '4px' }}>Full Name:</label>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Full Name (Optional):
+                </label>
                 <input
                   type="text"
                   className="input-field"
@@ -618,62 +1318,61 @@ export default function AdminView({ idToken, user }) {
                   placeholder="e.g. Ramesh Kumar"
                   value={staffForm.name}
                   onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
-                  required
                 />
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', color: '#CBD5E1', display: 'block', marginBottom: '4px' }}>10-Digit Mobile Number:</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <span style={{ backgroundColor: '#1E293B', padding: '8px 12px', borderRadius: '6px', color: '#94A3B8', fontSize: '13px', fontWeight: '600' }}>+91</span>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Mobile Number (10 digits): *
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: '#94A3B8', fontSize: '13px' }}>+91</span>
                   <input
                     type="tel"
+                    maxLength={10}
                     className="input-field"
                     style={{ flex: 1 }}
-                    placeholder="9966843779"
-                    maxLength={10}
+                    placeholder="9876543210"
                     value={staffForm.mobileNumber}
-                    onChange={(e) => setStaffForm({ ...staffForm, mobileNumber: e.target.value })}
+                    onChange={(e) => setStaffForm({ ...staffForm, mobileNumber: e.target.value.replace(/\D/g, '') })}
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', color: '#CBD5E1', display: 'block', marginBottom: '4px' }}>Assigned Department:</label>
-                {departments.length === 0 ? (
-                  <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', border: '1px solid #EF4444', padding: '10px', borderRadius: '6px', fontSize: '12px', color: '#F87171', marginBottom: '8px' }}>
-                    ⚠️ No departments exist in PostgreSQL. Click <strong>+ Create Department</strong> above before creating staff accounts.
-                  </div>
-                ) : (
-                  <select
-                    className="input-field"
-                    style={{ width: '100%' }}
-                    value={staffForm.departmentId}
-                    onChange={(e) => setStaffForm({ ...staffForm, departmentId: e.target.value })}
-                    required
-                  >
-                    <option value="">-- Choose Department --</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name} (ID: {d.id})</option>
-                    ))}
-                  </select>
-                )}
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Department: *
+                </label>
+                <select
+                  className="input-field"
+                  style={{ width: '100%' }}
+                  value={staffForm.departmentId}
+                  onChange={(e) => setStaffForm({ ...staffForm, departmentId: e.target.value })}
+                  required
+                >
+                  <option value="">-- Select Department --</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} {d.description ? `(${d.description})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setShowStaffModal(false)}
-                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #334155', background: '#1E293B', color: '#CBD5E1', cursor: 'pointer' }}
+                  style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid #475569', borderRadius: '6px', color: '#94A3B8', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="btn-primary"
-                  disabled={staffLoading || departments.length === 0}
-                  style={{ flex: 1, backgroundColor: showStaffModal === 'SUPERVISOR' ? '#7C3AED' : '#2563EB' }}
+                  disabled={staffLoading}
+                  style={{ flex: 1, padding: '8px', backgroundColor: showStaffModal === 'SUPERVISOR' ? '#7C3AED' : '#2563EB' }}
                 >
                   {staffLoading ? 'Creating...' : `Create ${showStaffModal}`}
                 </button>
@@ -686,22 +1385,27 @@ export default function AdminView({ idToken, user }) {
       {/* Department Creation Modal */}
       {showDeptModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ width: '100%', maxWidth: '420px', padding: '24px' }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC', marginBottom: '6px' }}>
-              Create Civic Department
-            </h3>
-            <p style={{ fontSize: '12px', color: '#94A3B8', marginBottom: '16px' }}>
-              Add a new municipal department in PostgreSQL for issue routing and staff assignment.
-            </p>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '440px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC' }}>Create Municipal Department</h3>
+              <button
+                onClick={() => setShowDeptModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
 
-            <form onSubmit={handleCreateDepartment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <form onSubmit={handleCreateDepartment} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={{ fontSize: '12px', color: '#CBD5E1', display: 'block', marginBottom: '4px' }}>Department Name:</label>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Department Name: *
+                </label>
                 <input
                   type="text"
                   className="input-field"
                   style={{ width: '100%' }}
-                  placeholder="e.g. ROADS, SANITATION, WATER_SUPPLY"
+                  placeholder="e.g. Roads & Bridges Department"
                   value={deptForm.name}
                   onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
                   required
@@ -709,22 +1413,24 @@ export default function AdminView({ idToken, user }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '12px', color: '#CBD5E1', display: 'block', marginBottom: '4px' }}>Description (Optional):</label>
-                <input
-                  type="text"
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#94A3B8', display: 'block', marginBottom: '4px' }}>
+                  Description:
+                </label>
+                <textarea
                   className="input-field"
-                  style={{ width: '100%' }}
-                  placeholder="e.g. Municipal road maintenance and repairs"
+                  rows={3}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  placeholder="Operational remit, e.g. Handles potholes and damaged concrete structures"
                   value={deptForm.description}
                   onChange={(e) => setDeptForm({ ...deptForm, description: e.target.value })}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setShowDeptModal(false)}
-                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #334155', background: '#1E293B', color: '#CBD5E1', cursor: 'pointer' }}
+                  style={{ flex: 1, padding: '8px', background: 'none', border: '1px solid #475569', borderRadius: '6px', color: '#94A3B8', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
@@ -732,7 +1438,7 @@ export default function AdminView({ idToken, user }) {
                   type="submit"
                   className="btn-primary"
                   disabled={deptLoading}
-                  style={{ flex: 1, backgroundColor: '#059669' }}
+                  style={{ flex: 1, padding: '8px', backgroundColor: '#059669' }}
                 >
                   {deptLoading ? 'Creating...' : 'Create Department'}
                 </button>
@@ -745,16 +1451,11 @@ export default function AdminView({ idToken, user }) {
       {/* Department List Modal */}
       {showDeptListModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ width: '100%', maxWidth: '650px', padding: '24px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '560px', padding: '24px', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC' }}>
-                  Municipal Departments ({departments.length})
-                </h3>
-                <p style={{ fontSize: '12px', color: '#94A3B8' }}>
-                  Active departments in PostgreSQL and their responsible complaint categories
-                </p>
-              </div>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F8FAFC' }}>
+                Municipal Departments ({departments.length})
+              </h3>
               <button
                 onClick={() => setShowDeptListModal(false)}
                 style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
@@ -763,40 +1464,29 @@ export default function AdminView({ idToken, user }) {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
-              {departments.map((dept) => (
-                <div key={dept.id} style={{ padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: '#0284C722', color: '#38BDF8', fontWeight: '700' }}>
-                        ID: {dept.id}
-                      </span>
-                      <strong style={{ fontSize: '14px', color: '#F8FAFC' }}>{dept.name}</strong>
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '4px' }}>
-                      <span style={{ color: '#64748B' }}>Responsible Category: </span>
-                      <span style={{ color: dept.description ? '#CBD5E1' : '#64748B', fontStyle: dept.description ? 'normal' : 'italic' }}>
-                        {dept.description || 'No category assigned currently'}
-                      </span>
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {departments.map((d) => (
+                <div key={d.id} style={{ backgroundColor: '#0F172A', padding: '12px 16px', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: '700', color: '#F8FAFC', fontSize: '14px' }}>{d.name}</span>
+                    <span style={{ fontSize: '11px', color: '#94A3B8', backgroundColor: '#1E293B', padding: '2px 8px', borderRadius: '4px' }}>
+                      ID: {d.id}
+                    </span>
                   </div>
+                  {d.description && (
+                    <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '4px' }}>
+                      {d.description}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
               <button
-                type="button"
-                onClick={() => { setShowDeptListModal(false); setShowDeptModal(true); }}
-                className="btn-primary"
-                style={{ backgroundColor: '#059669', fontSize: '12px', padding: '6px 14px' }}
-              >
-                + Create New Department
-              </button>
-              <button
-                type="button"
                 onClick={() => setShowDeptListModal(false)}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #334155', background: '#1E293B', color: '#CBD5E1', cursor: 'pointer', fontSize: '12px' }}
+                className="btn-primary"
+                style={{ backgroundColor: '#475569', padding: '8px 16px' }}
               >
                 Close
               </button>
@@ -847,7 +1537,8 @@ export default function AdminView({ idToken, user }) {
           </div>
         </div>
       )}
-      {/* Admin Manual Review & Assignment Modal */}
+
+      {/* Admin Manual Review & Reassignment Modal (General) */}
       {reviewModalComplaint && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
           <div className="glass-card" style={{ width: '100%', maxWidth: '580px', padding: '24px', maxHeight: '85vh', overflowY: 'auto' }}>

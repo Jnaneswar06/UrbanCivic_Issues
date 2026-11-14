@@ -1,0 +1,5 @@
+threshold,total_complaints,auto_routed,manual_review,coverage_pct,accuracy_routed_pct,routed_incorrect
+0.3,3950,3918,32,99.19,95.51,176
+0.5,3950,3745,205,94.81,97.41,97
+0.7,3950,3445,505,87.22,98.61,48
+0.9,3950,2824,1126,71.49,99.4,17

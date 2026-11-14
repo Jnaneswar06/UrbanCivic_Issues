@@ -21,6 +21,46 @@ export async function getAdminComplaints(idToken) {
   return await response.json();
 }
 
+export async function getPendingReviewComplaints(idToken) {
+  const response = await fetch(`${API_BASE_URL}/api/admin/complaints/pending-review`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!response.ok) throw new Error('Failed to fetch pending review complaints');
+  return await response.json();
+}
+
+export async function approveComplaint(idToken, complaintId, data) {
+  const response = await fetch(`${API_BASE_URL}/api/admin/complaints/${complaintId}/approve`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.message || 'Failed to approve complaint');
+  }
+  return await response.json();
+}
+
+export async function rejectComplaint(idToken, complaintId, data) {
+  const response = await fetch(`${API_BASE_URL}/api/admin/complaints/${complaintId}/reject`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => null);
+    throw new Error(err?.message || 'Failed to reject complaint');
+  }
+  return await response.json();
+}
+
 export async function forwardComplaint(idToken, complaintId, departmentId) {
   const response = await fetch(`${API_BASE_URL}/api/admin/complaints/${complaintId}/forward`, {
     method: 'PATCH',
@@ -52,7 +92,6 @@ export async function manualAssignComplaint(idToken, complaintId, data) {
   }
   return await response.json();
 }
-
 
 export async function getSupervisorComplaints(idToken) {
   const response = await fetch(`${API_BASE_URL}/api/supervisor/complaints`, {

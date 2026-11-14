@@ -890,6 +890,8 @@ export default function App() {
     switch (status) {
       case 'SUBMITTED':
         return { bg: '#78350F33', border: '#F59E0B66', text: '#F59E0B' };
+      case 'PENDING_ADMIN_REVIEW':
+        return { bg: '#78350F33', border: '#F59E0B66', text: '#FBBF24' };
       case 'FORWARDED':
         return { bg: '#1E3A8A33', border: '#3B82F666', text: '#60A5FA' };
       case 'ASSIGNED':
@@ -898,6 +900,8 @@ export default function App() {
         return { bg: '#701A7533', border: '#E879F966', text: '#F0ABFC' };
       case 'RESOLVED':
         return { bg: '#065F4633', border: '#10B98166', text: '#34D399' };
+      case 'REJECTED':
+        return { bg: '#7F1D1D33', border: '#EF444466', text: '#F87171' };
       default:
         return { bg: '#33415533', border: '#64748B66', text: '#94A3B8' };
     }
@@ -1107,6 +1111,7 @@ export default function App() {
     }
 
     if (lastSubmittedComplaint) {
+      const isNonCivicPending = lastSubmittedComplaint.isCivicIssue === false;
       return (
         <View style={styles.successCard}>
           <Text style={styles.successCheckIcon}>✓</Text>
@@ -1114,11 +1119,17 @@ export default function App() {
           <Text style={styles.complaintNumBox}>
             Complaint #: {lastSubmittedComplaint.complaintNumber}
           </Text>
-          <Text style={styles.successDesc}>
-            Your issue has been logged in PostgreSQL with status{' '}
-            <Text style={{ color: '#F59E0B', fontWeight: '700' }}>SUBMITTED</Text>. SLA deadline is{' '}
-            {lastSubmittedComplaint.slaDeadline ? new Date(lastSubmittedComplaint.slaDeadline).toLocaleString() : 'set'}.
-          </Text>
+          {isNonCivicPending ? (
+            <Text style={styles.successDesc}>
+              Your complaint has been submitted successfully and forwarded to the Admin for manual review.
+            </Text>
+          ) : (
+            <Text style={styles.successDesc}>
+              Your issue has been logged in PostgreSQL with status{' '}
+              <Text style={{ color: '#F59E0B', fontWeight: '700' }}>SUBMITTED</Text>. SLA deadline is{' '}
+              {lastSubmittedComplaint.slaDeadline ? new Date(lastSubmittedComplaint.slaDeadline).toLocaleString() : 'set'}.
+            </Text>
+          )}
 
           <TouchableOpacity
             style={styles.primaryButton}

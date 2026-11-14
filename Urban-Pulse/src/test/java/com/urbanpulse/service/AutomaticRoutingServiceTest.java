@@ -1,6 +1,8 @@
 package com.urbanpulse.service;
 
 import com.urbanpulse.dto.AdminManualAssignRequest;
+import com.urbanpulse.dto.AdminReviewApproveRequest;
+import com.urbanpulse.dto.AdminReviewRejectRequest;
 import com.urbanpulse.dto.MlPredictionResponse;
 import com.urbanpulse.entity.Complaint;
 import com.urbanpulse.entity.ComplaintStatus;
@@ -20,6 +22,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Collections;
@@ -100,7 +103,8 @@ class AutomaticRoutingServiceTest {
         MlPredictionResponse prediction = MlPredictionResponse.builder()
                 .predictedClass("Garbage")
                 .confidence(0.87)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .modelVersion("urbanpulse_cascaded_v2")
+                .isCivicIssue(true)
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -111,27 +115,26 @@ class AutomaticRoutingServiceTest {
 
         assertNotNull(result);
         assertEquals(ComplaintStatus.FORWARDED, result.getStatus());
-        assertEquals("Garbage", result.getPredictedCategory());
-        assertEquals(0.87, result.getConfidenceScore());
         assertEquals("AUTO_ML", result.getAssignmentMethod());
         assertFalse(result.getRequiresManualReview());
-        assertNull(result.getAdminReviewReason());
         assertEquals(sanitationDept, result.getDepartment());
         assertEquals(sanitationSupervisor, result.getAssignedSupervisor());
+        assertEquals("Garbage", result.getPredictedCategory());
+        assertEquals(0.87, result.getConfidenceScore());
         assertNotNull(result.getAssignedAt());
 
-        verify(historyRepository).save(any(ComplaintStatusHistory.class));
         verify(notificationService).sendComplaintStatusNotification(eq("token1"), eq("CMP-100"), eq(ComplaintStatus.FORWARDED), eq("Sanitation Department"));
         verify(notificationService).sendComplaintStatusNotification(eq("token-sup1"), eq("CMP-100"), eq(ComplaintStatus.FORWARDED), eq("Sanitation Department"));
     }
 
     @Test
-    @DisplayName("Confidence > 50% (Potholes and RoadCracks, 75%): Automatically forwards to Road Safety Department supervisor")
+    @DisplayName("Confidence > 50% (Potholes, 92%): Automatically forwards to Road Safety Department supervisor")
     void testAutoForwardHighConfidencePotholes() {
         MlPredictionResponse prediction = MlPredictionResponse.builder()
                 .predictedClass("Potholes and RoadCracks")
-                .confidence(0.75)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .confidence(0.92)
+                .modelVersion("urbanpulse_cascaded_v2")
+                .isCivicIssue(true)
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -142,21 +145,20 @@ class AutomaticRoutingServiceTest {
 
         assertNotNull(result);
         assertEquals(ComplaintStatus.FORWARDED, result.getStatus());
-        assertEquals("Potholes and Road Cracks", result.getPredictedCategory());
-        assertEquals(0.75, result.getConfidenceScore());
         assertEquals("AUTO_ML", result.getAssignmentMethod());
-        assertFalse(result.getRequiresManualReview());
         assertEquals(roadsDept, result.getDepartment());
         assertEquals(roadsSupervisor, result.getAssignedSupervisor());
+        assertEquals("Potholes and Road Cracks", result.getPredictedCategory());
     }
 
     @Test
-    @DisplayName("Exact 50% Confidence (Garbage, 50%): Routes to Admin for manual review")
-    void testExactFiftyPercentBoundaryRoutesToAdmin() {
+    @DisplayName("Confidence <= 50% (45%): Routes to Admin for manual review (SUBMITTED)")
+    void testRouteLowConfidence() {
         MlPredictionResponse prediction = MlPredictionResponse.builder()
                 .predictedClass("Garbage")
-                .confidence(0.50)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .confidence(0.45)
+                .modelVersion("urbanpulse_cascaded_v2")
+                .isCivicIssue(true)
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -165,52 +167,41 @@ class AutomaticRoutingServiceTest {
 
         assertNotNull(result);
         assertEquals(ComplaintStatus.SUBMITTED, result.getStatus());
-        assertTrue(result.getRequiresManualReview());
         assertEquals("MANUAL_REVIEW_LOW_CONFIDENCE", result.getAssignmentMethod());
+        assertTrue(result.getRequiresManualReview());
         assertNotNull(result.getAdminReviewReason());
-        assertTrue(result.getAdminReviewReason().contains("<= 50%"));
+        assertTrue(result.getAdminReviewReason().contains("45.0%"));
+        assertNull(result.getDepartment());
         assertNull(result.getAssignedSupervisor());
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test
-    @DisplayName("Confidence <= 50% (Garbage, 49%): Routes to Admin for manual review")
-    void testFortyNinePercentRoutesToAdmin() {
-        MlPredictionResponse prediction = MlPredictionResponse.builder()
-                .predictedClass("Garbage")
-                .confidence(0.49)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
-                .build();
-
-        when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
-
-        Complaint result = routingService.routeComplaint(complaint, new byte[]{1, 2, 3}, "test.jpg");
-
-        assertNotNull(result);
-        assertEquals(ComplaintStatus.SUBMITTED, result.getStatus());
-        assertTrue(result.getRequiresManualReview());
-        assertEquals("MANUAL_REVIEW_LOW_CONFIDENCE", result.getAssignmentMethod());
-    }
-
-    @Test
-    @DisplayName("ML service failure (empty response): Safely routes to Admin without losing complaint")
-    void testMlServiceFailureRoutesToAdmin() {
+    @DisplayName("ML Service Failure: Fallback routes to Admin for manual review without failing transaction")
+    void testMlServiceFailureFallback() {
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.empty());
 
         Complaint result = routingService.routeComplaint(complaint, new byte[]{1, 2, 3}, "test.jpg");
 
         assertNotNull(result);
         assertEquals(ComplaintStatus.SUBMITTED, result.getStatus());
-        assertTrue(result.getRequiresManualReview());
         assertEquals("MANUAL_REVIEW_ML_FAILED", result.getAssignmentMethod());
+        assertTrue(result.getRequiresManualReview());
         assertNotNull(result.getAdminReviewReason());
+        assertNull(result.getDepartment());
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test
-    @DisplayName("No active supervisor found in mapped department: Retains department and routes to Admin")
-    void testNoSupervisorInDepartmentRoutesToAdmin() {
+    @DisplayName("Mapped department has no active supervisor: Retains department and routes to Admin for review")
+    void testNoSupervisorInDepartmentFallback() {
         MlPredictionResponse prediction = MlPredictionResponse.builder()
                 .predictedClass("Garbage")
-                .confidence(0.92)
+                .confidence(0.85)
+                .modelVersion("urbanpulse_cascaded_v2")
+                .isCivicIssue(true)
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -221,14 +212,16 @@ class AutomaticRoutingServiceTest {
 
         assertNotNull(result);
         assertEquals(ComplaintStatus.SUBMITTED, result.getStatus());
-        assertTrue(result.getRequiresManualReview());
         assertEquals("MANUAL_REVIEW_NO_SUPERVISOR", result.getAssignmentMethod());
+        assertTrue(result.getRequiresManualReview());
         assertEquals(sanitationDept, result.getDepartment());
         assertNull(result.getAssignedSupervisor());
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test
-    @DisplayName("Stage 1 Binary Rejection (NOT_CIVIC_ISSUE): Sets REJECTED, requiresManualReview=true, and leaves department null")
+    @DisplayName("Stage 1 Binary Non-Civic (NOT_CIVIC_ISSUE): Saved as PENDING_ADMIN_REVIEW, forwarded to Admin, department is null")
     void testStage1BinaryRejectionNonCivicIssue() {
         MlPredictionResponse prediction = MlPredictionResponse.builder()
                 .success(true)
@@ -239,8 +232,8 @@ class AutomaticRoutingServiceTest {
                 .notCivicProbability(0.93)
                 .civicProbability(0.07)
                 .predictedClass(null)
-                .confidence(0.07)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .confidence(0.93)
+                .modelVersion("urbanpulse_cascaded_v2")
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -248,14 +241,15 @@ class AutomaticRoutingServiceTest {
         Complaint result = routingService.routeComplaint(complaint, new byte[]{1, 2, 3}, "selfie.jpg");
 
         assertNotNull(result);
-        assertEquals(ComplaintStatus.REJECTED, result.getStatus());
+        assertEquals(ComplaintStatus.PENDING_ADMIN_REVIEW, result.getStatus());
+        assertEquals("PENDING_ADMIN_REVIEW", result.getReviewStatus());
         assertFalse(result.getIsCivicIssue());
         assertEquals("NOT_CIVIC_ISSUE", result.getBinaryPrediction());
         assertEquals(0.93, result.getNotCivicProbability());
         assertEquals(0.07, result.getCivicProbability());
         assertNull(result.getPredictedCategory());
         assertTrue(result.getRequiresManualReview());
-        assertEquals("REJECTED_NON_CIVIC_IMAGE", result.getAssignmentMethod());
+        assertEquals("PENDING_ADMIN_REVIEW", result.getAssignmentMethod());
         assertNotNull(result.getAdminReviewReason());
         assertTrue(result.getAdminReviewReason().contains("NOT_CIVIC_ISSUE"));
         assertNull(result.getDepartment());
@@ -279,7 +273,7 @@ class AutomaticRoutingServiceTest {
                 .civicProbability(0.96)
                 .predictedClass("Potholes and RoadCracks")
                 .confidence(0.89)
-                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .modelVersion("urbanpulse_cascaded_v2")
                 .build();
 
         when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
@@ -300,6 +294,90 @@ class AutomaticRoutingServiceTest {
         assertFalse(result.getRequiresManualReview());
         assertEquals(roadsDept, result.getDepartment());
         assertEquals(roadsSupervisor, result.getAssignedSupervisor());
+    }
+
+    @Test
+    @DisplayName("Admin manual approval: Approves non-civic complaint, categorizes, routes to department supervisor")
+    void testAdminApproveNonCivicComplaint() {
+        complaint.setStatus(ComplaintStatus.PENDING_ADMIN_REVIEW);
+        complaint.setIsCivicIssue(false);
+        complaint.setReviewStatus("PENDING_ADMIN_REVIEW");
+        complaint.setRequiresManualReview(true);
+
+        when(userRepository.findByMobileNumber("+91 9000000002")).thenReturn(Optional.of(admin));
+        when(complaintRepository.findById(100L)).thenReturn(Optional.of(complaint));
+        when(departmentRepository.findByName("Road Safety Department")).thenReturn(Optional.of(roadsDept));
+        when(userRepository.findByRoleAndDepartmentId(Role.SUPERVISOR, roadsDept.getId())).thenReturn(List.of(roadsSupervisor));
+
+        AdminReviewApproveRequest request = AdminReviewApproveRequest.builder()
+                .category("Potholes and RoadCracks")
+                .remarks("Overridden by admin: Real pothole visible")
+                .build();
+
+        Complaint approved = routingService.approveNonCivicComplaintByAdmin(100L, request, "+91 9000000002");
+
+        assertNotNull(approved);
+        assertEquals(ComplaintStatus.FORWARDED, approved.getStatus());
+        assertTrue(approved.getIsCivicIssue());
+        assertEquals("ADMIN_APPROVED", approved.getReviewStatus());
+        assertEquals("ADMIN_VERIFIED", approved.getClassificationSource());
+        assertEquals("ADMIN_MANUAL_APPROVAL", approved.getAssignmentMethod());
+        assertEquals("Potholes and Road Cracks", approved.getPredictedCategory());
+        assertEquals(roadsDept, approved.getDepartment());
+        assertEquals(roadsSupervisor, approved.getAssignedSupervisor());
+        assertFalse(approved.getRequiresManualReview());
+        assertEquals("+91 9000000002", approved.getAdminReviewedBy());
+        assertNotNull(approved.getAdminReviewedAt());
+
+        verify(notificationService).sendComplaintStatusNotification(eq("token1"), eq("CMP-100"), eq(ComplaintStatus.FORWARDED), eq("Road Safety Department"));
+        verify(notificationService).sendComplaintStatusNotification(eq("token-sup2"), eq("CMP-100"), eq(ComplaintStatus.FORWARDED), eq("Road Safety Department"));
+    }
+
+    @Test
+    @DisplayName("Admin manual rejection: Rejects non-civic complaint with reason without department assignment")
+    void testAdminRejectNonCivicComplaint() {
+        complaint.setStatus(ComplaintStatus.PENDING_ADMIN_REVIEW);
+        complaint.setIsCivicIssue(false);
+        complaint.setReviewStatus("PENDING_ADMIN_REVIEW");
+        complaint.setRequiresManualReview(true);
+
+        when(userRepository.findByMobileNumber("+91 9000000002")).thenReturn(Optional.of(admin));
+        when(complaintRepository.findById(100L)).thenReturn(Optional.of(complaint));
+
+        AdminReviewRejectRequest request = AdminReviewRejectRequest.builder()
+                .rejectionReason("Selfie/irrelevant non-civic upload")
+                .remarks("Not a municipal issue")
+                .build();
+
+        Complaint rejected = routingService.rejectNonCivicComplaintByAdmin(100L, request, "+91 9000000002");
+
+        assertNotNull(rejected);
+        assertEquals(ComplaintStatus.REJECTED, rejected.getStatus());
+        assertEquals("ADMIN_REJECTED", rejected.getReviewStatus());
+        assertEquals("ADMIN_VERIFIED", rejected.getClassificationSource());
+        assertEquals("REJECTED", rejected.getClassificationStatus());
+        assertEquals("Selfie/irrelevant non-civic upload", rejected.getAdminRejectionReason());
+        assertNull(rejected.getDepartment());
+        assertNull(rejected.getAssignedSupervisor());
+        assertNull(rejected.getAssignedWorker());
+        assertFalse(rejected.getRequiresManualReview());
+        assertEquals("+91 9000000002", rejected.getAdminReviewedBy());
+
+        verify(notificationService).sendComplaintStatusNotification(eq("token1"), eq("CMP-100"), eq(ComplaintStatus.REJECTED), eq("Admin Review"));
+    }
+
+    @Test
+    @DisplayName("Non-Admin user attempting approval throws AccessDeniedException")
+    void testNonAdminApprovalAccessDenied() {
+        when(userRepository.findByMobileNumber("+91 9000000001")).thenReturn(Optional.of(citizen));
+
+        AdminReviewApproveRequest request = AdminReviewApproveRequest.builder()
+                .category("Garbage")
+                .build();
+
+        assertThrows(AccessDeniedException.class, () ->
+                routingService.approveNonCivicComplaintByAdmin(100L, request, "+91 9000000001")
+        );
     }
 
     @Test

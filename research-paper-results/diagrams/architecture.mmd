@@ -1,0 +1,50 @@
+flowchart TB
+    subgraph ClientLayer ["Client Layer"]
+        CitizenApp["Citizen Mobile App\n(React Native 0.74 / TypeScript)\n[Port 8081]"]
+        StaffPortal["Staff Web Portal\n(React 18 + Vite 5 + Tailwind)\n[Port 5173]"]
+    end
+
+    subgraph AuthLayer ["Identity & Security Provider"]
+        FirebaseAuth["Firebase Authentication\n(Phone SMS OTP + RS256 JWT)\nGoogle Cloud Identity"]
+        FCM["Firebase Cloud Messaging (FCM)\nPush Notification Engine"]
+    end
+
+    subgraph BackendLayer ["Backend Core Subsystem (Spring Boot 3.3.4 / Java 17) [Port 8080]"]
+        SecurityFilter["FirebaseAuthenticationFilter\n(Stateless OncePerRequestFilter)"]
+        Controllers["REST Controllers\n• ComplaintController\n• AdminComplaintController\n• WorkerComplaintController\n• AuthController / UserController"]
+        Services["Business Services\n• ComplaintService\n• AutomaticRoutingService\n• CategoryDepartmentMappingService\n• SlaService\n• FileStorageService\n• NotificationService"]
+        Repositories["Spring Data JPA Repositories\n(Hibernate 6.5 ORM)"]
+        LocalStorage["Local File Storage\n(/uploads/ directory)"]
+    end
+
+    subgraph DatabaseLayer ["Relational Storage [Port 5432]"]
+        Postgres[("PostgreSQL 18 Database\n• users\n• departments\n• complaints\n• complaint_status_history\n• complaint_participants")]
+    end
+
+    subgraph MLLayer ["Deep Learning Microservice (Python 3.13 / Flask 3.1) [Port 5001]"]
+        FlaskAPI["Flask REST API Server\n(/predict, /health)"]
+        Stage1["Stage 1: Gatekeeper Filter\n(urbanpulse_binary_v2_best.keras)\nMobileNetV2 + Sigmoid"]
+        Stage2["Stage 2: 8-Class Classifier\n(urbanpulse_8class_pothole_stage1.keras)\nMobileNetV2 + Softmax"]
+    end
+
+    CitizenApp -->|"1. Phone OTP Verification"| FirebaseAuth
+    StaffPortal -->|"1. Phone OTP Verification"| FirebaseAuth
+    FirebaseAuth -.->|"Signed ID Token"| CitizenApp
+    FirebaseAuth -.->|"Signed ID Token"| StaffPortal
+
+    CitizenApp -->|"HTTP POST /api/complaints\nBearer ID Token"| SecurityFilter
+    StaffPortal -->|"HTTP GET/PATCH /api/**\nBearer ID Token"| SecurityFilter
+    SecurityFilter -->|"Cryptographic Verification"| FirebaseAuth
+    SecurityFilter --> Controllers
+    Controllers --> Services
+    Services --> Repositories
+    Repositories -->|"JDBC / SQL"| Postgres
+    Services -->|"Persist Photo Bytes"| LocalStorage
+
+    Services -->|"HTTP POST /predict\nMultipart Image Bytes"| FlaskAPI
+    FlaskAPI --> Stage1
+    Stage1 -->|"If not_civic_prob < 0.50 (Civic Issue)"| Stage2
+    FlaskAPI -.->|"JSON (Class, Confidence, Probabilities)"| Services
+
+    Services -->|"Async Dispatch (Background Thread)"| FCM
+    FCM -.->|"Mobile Push Notifications"| CitizenApp

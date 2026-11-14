@@ -1,0 +1,67 @@
+sequenceDiagram
+    autonumber
+    actor Citizen as Citizen (Mobile App)
+    participant Backend as Spring Boot Backend (:8080)
+    participant Storage as File Storage Service (/uploads/)
+    participant ML as Flask ML Service (:5001)
+    participant DB as PostgreSQL Database (:5432)
+    participant FCM as Firebase Cloud Messaging
+    actor Supervisor as Municipal Supervisor
+    actor Worker as Field Worker
+
+    Note over Citizen,Backend: 1. Duplicate Check & Issue Submission
+    Citizen->>Backend: POST /api/complaints/check-duplicates (coords, issueType)
+    Backend->>DB: Query candidates by issueType & Haversine formula
+    DB-->>Backend: Existing nearby complaints
+    Backend-->>Citizen: 200 OK (matches list, distance, eligibleForJoin)
+
+    alt Duplicate found & Citizen joins
+        Citizen->>Backend: POST /api/complaints/{id}/join
+        Backend->>DB: Insert into complaint_participants
+        Backend-->>Citizen: 200 OK (joinCount, alreadyJoined)
+    else New complaint creation
+        Citizen->>Backend: POST /api/complaints/upload-image (Multipart file)
+        Backend->>Storage: Store image (UUID.jpg)
+        Storage-->>Backend: /uploads/uuid.jpg
+        Backend-->>Citizen: 200 OK (imageUrl)
+
+        Citizen->>Backend: POST /api/complaints (imageUrl, lat, lon, issueType)
+        Backend->>DB: Insert complaint (status=SUBMITTED, SLA deadline)
+        Backend->>DB: Insert status_history ('Complaint submitted by citizen')
+        Backend->>FCM: Async send 'Complaint submitted successfully'
+
+        Note over Backend,ML: 2. Automated Two-Stage ML Triage
+        Backend->>ML: POST /predict (Multipart image bytes)
+        ML->>ML: Stage 1: Binary filter (urbanpulse_binary_v2_best.keras)
+        alt Non-Civic Image (not_civic_prob >= 0.50)
+            ML-->>Backend: JSON (isCivic=false, NOT_CIVIC_ISSUE)
+            Backend->>DB: Update status=REJECTED, assignment=REJECTED_NON_CIVIC_IMAGE
+        else Confirmed Civic Issue (not_civic_prob < 0.50)
+            ML->>ML: Stage 2: 8-Class classifier (urbanpulse_8class_pothole_stage1.keras)
+            ML-->>Backend: JSON (predictedClass, confidence, probabilities)
+            alt Confidence > 0.50 & Department/Supervisor exists
+                Backend->>DB: Update status=FORWARDED, assignment=AUTO_ML, set supervisor
+                Backend->>FCM: Notify citizen & supervisor
+            else Confidence <= 0.50 or missing supervisor
+                Backend->>DB: Update status=SUBMITTED, requiresManualReview=true
+            end
+        end
+        Backend-->>Citizen: 201 Created (ComplaintResponse)
+    end
+
+    Note over Supervisor,Worker: 3. Worker Dispatch & Remediation
+    Supervisor->>Backend: PATCH /api/supervisor/complaints/{id}/assign-worker (workerMobile)
+    Backend->>DB: Update status=ASSIGNED, assigned_worker
+    Backend->>FCM: Notify worker & citizen(s)
+
+    Worker->>Backend: PATCH /api/worker/complaints/{id}/status (status=IN_PROGRESS)
+    Backend->>DB: Update status=IN_PROGRESS
+    Backend->>FCM: Notify citizen(s)
+
+    Worker->>Backend: POST /api/worker/complaints/{id}/proof (Multipart proof photo)
+    Backend->>Storage: Store proof image
+    Backend->>DB: Update proof_image_url
+
+    Worker->>Backend: PATCH /api/worker/complaints/{id}/status (status=RESOLVED)
+    Backend->>DB: Update status=RESOLVED, resolved_at=now(), resolved_within_sla
+    Backend->>FCM: Notify all joined citizens ('Complaint resolved')

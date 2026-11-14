@@ -1,0 +1,12 @@
+class_name,precision,recall,f1_score,support
+Damaged concrete structures,0.9757,0.9861,0.9809,1222
+DamagedElectricalPoles,0.8866,0.9055,0.8959,328
+DamagedRoadSigns,1.0,0.9487,0.9737,39
+DeadAnimalsPollution,0.9286,0.8125,0.8667,16
+FallenTrees,0.9785,0.9743,0.9764,1632
+Garbage,0.8372,0.9614,0.895,337
+IllegalParking,1.0,0.5714,0.7273,7
+Potholes and RoadCracks,0.9489,0.8049,0.871,369
+accuracy,0.9537,0.9537,0.9537,3950
+macro_avg,0.9444,0.8706,0.8983,3950
+weighted_avg,0.9552,0.9537,0.9534,3950

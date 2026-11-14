@@ -1,0 +1,68 @@
+{
+    "model_name": "urbanpulse_8class_mobilenetv2.keras / urbanpulse_8class_best.keras",
+    "evaluation_dataset": "Held-out Test Split (akinduhiman/urban-issues-dataset)",
+    "total_test_samples": 3950,
+    "overall_accuracy": 0.9537,
+    "macro_avg": {
+        "precision": 0.9444,
+        "recall": 0.8706,
+        "f1_score": 0.8983,
+        "support": 3950
+    },
+    "weighted_avg": {
+        "precision": 0.9552,
+        "recall": 0.9537,
+        "f1_score": 0.9534,
+        "support": 3950
+    },
+    "classes": {
+        "Damaged concrete structures": {
+            "precision": 0.9757,
+            "recall": 0.9861,
+            "f1_score": 0.9809,
+            "support": 1222
+        },
+        "DamagedElectricalPoles": {
+            "precision": 0.8866,
+            "recall": 0.9055,
+            "f1_score": 0.8959,
+            "support": 328
+        },
+        "DamagedRoadSigns": {
+            "precision": 1.0,
+            "recall": 0.9487,
+            "f1_score": 0.9737,
+            "support": 39
+        },
+        "DeadAnimalsPollution": {
+            "precision": 0.9286,
+            "recall": 0.8125,
+            "f1_score": 0.8667,
+            "support": 16
+        },
+        "FallenTrees": {
+            "precision": 0.9785,
+            "recall": 0.9743,
+            "f1_score": 0.9764,
+            "support": 1632
+        },
+        "Garbage": {
+            "precision": 0.8372,
+            "recall": 0.9614,
+            "f1_score": 0.895,
+            "support": 337
+        },
+        "IllegalParking": {
+            "precision": 1.0,
+            "recall": 0.5714,
+            "f1_score": 0.7273,
+            "support": 7
+        },
+        "Potholes and RoadCracks": {
+            "precision": 0.9489,
+            "recall": 0.8049,
+            "f1_score": 0.871,
+            "support": 369
+        }
+    }
+}

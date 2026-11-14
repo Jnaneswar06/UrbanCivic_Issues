@@ -1,0 +1,38 @@
+{
+    "total_mixed_test_samples": 4850,
+    "civic_issue_samples": 3950,
+    "non_civic_samples": 900,
+    "stage1_binary_filter": {
+        "total_evaluated": 4850,
+        "civic_correctly_accepted": 3792,
+        "civic_falsely_rejected": 158,
+        "non_civic_correctly_rejected": 891,
+        "non_civic_falsely_accepted": 9,
+        "binary_filtering_accuracy": 0.9656,
+        "non_civic_rejection_rate": 0.99,
+        "civic_acceptance_rate": 0.96
+    },
+    "stage2_multiclass_classifier": {
+        "images_received": 3801,
+        "correctly_classified_civic": 3616,
+        "misclassified_civic": 176,
+        "non_civic_false_inclusions": 9,
+        "classification_accuracy_on_accepted_civic": 0.9537
+    },
+    "stage3_confidence_routing": {
+        "confidence_threshold": 0.5,
+        "automatically_routed_correctly": 3428,
+        "automatically_routed_incorrectly": 93,
+        "sent_to_manual_review_low_confidence": 280,
+        "sent_to_manual_review_non_civic_flagged": 1049,
+        "total_auto_routed": 3521,
+        "routing_coverage_on_accepted": 0.9263,
+        "routing_precision": 0.9736
+    },
+    "end_to_end_system_metrics": {
+        "total_flawlessly_handled": 4599,
+        "overall_system_accuracy": 0.9482,
+        "critical_misdispatch_rate": 0.0192,
+        "manual_review_escalation_rate": 0.274
+    }
+}
