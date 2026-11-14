@@ -51,6 +51,11 @@ export interface ComplaintData {
   requiresManualReview?: boolean;
   adminReviewReason?: string;
   assignedAt?: string;
+  // Two-Stage Cascaded ML Pipeline fields
+  isCivicIssue?: boolean;
+  binaryPrediction?: string;
+  notCivicProbability?: number;
+  civicProbability?: number;
 }
 
 export interface CreateComplaintPayload {

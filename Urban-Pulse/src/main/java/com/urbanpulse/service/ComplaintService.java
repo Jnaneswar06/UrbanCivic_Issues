@@ -894,6 +894,10 @@ public class ComplaintService {
                 .requiresManualReview(c.getRequiresManualReview())
                 .adminReviewReason(c.getAdminReviewReason())
                 .assignedAt(c.getAssignedAt())
+                .isCivicIssue(c.getIsCivicIssue())
+                .binaryPrediction(c.getBinaryPrediction())
+                .notCivicProbability(c.getNotCivicProbability())
+                .civicProbability(c.getCivicProbability())
                 .build();
     }
 

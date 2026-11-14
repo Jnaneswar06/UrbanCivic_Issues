@@ -103,6 +103,43 @@ public class AutomaticRoutingService {
         }
 
         MlPredictionResponse prediction = predictionOpt.get();
+
+        // Two-Stage Cascaded ML Pipeline: Check Stage 1 Binary Relevance
+        Boolean isCivic = prediction.getIsCivicIssue();
+        if (Boolean.FALSE.equals(isCivic)) {
+            logger.warn("STAGE 1 AI Gatekeeper: Image classified as NOT_CIVIC_ISSUE for complaint {}. Rejecting and flagging for Admin review.",
+                    complaint.getComplaintNumber());
+
+            complaint.setIsCivicIssue(false);
+            complaint.setBinaryPrediction(prediction.getBinaryPrediction() != null ? prediction.getBinaryPrediction() : "NOT_CIVIC_ISSUE");
+            complaint.setNotCivicProbability(prediction.getNotCivicProbability());
+            complaint.setCivicProbability(prediction.getCivicProbability());
+            complaint.setPredictedCategory(null);
+            complaint.setConfidenceScore(prediction.getConfidence());
+            complaint.setModelVersion(prediction.getModelVersion() != null ? prediction.getModelVersion() : "urbanpulse_8class_pothole_stage1");
+            complaint.setStatus(ComplaintStatus.REJECTED);
+            complaint.setRequiresManualReview(true);
+            complaint.setAssignmentMethod("REJECTED_NON_CIVIC_IMAGE");
+
+            String confStr = prediction.getNotCivicProbability() != null
+                    ? String.format("%.1f%%", prediction.getNotCivicProbability() * 100) : "N/A";
+            complaint.setAdminReviewReason("Stage 1 Binary Relevance Filter: Non-civic image detected (NOT_CIVIC_ISSUE, non-civic confidence: " + confStr + ")");
+            complaint.setDepartment(null);
+            complaint.setAssignedSupervisor(null);
+            complaint.setAssignedWorker(null);
+
+            Complaint saved = complaintRepository.save(complaint);
+            recordStatusHistory(saved, ComplaintStatus.SUBMITTED, ComplaintStatus.REJECTED, saved.getCitizen(),
+                    "Stage 1 AI filter rejected: Image does not appear to contain a civic issue (" + confStr + "). Flagged for Admin review.");
+            return saved;
+        }
+
+        // Image confirmed as CIVIC_ISSUE
+        complaint.setIsCivicIssue(true);
+        complaint.setBinaryPrediction(prediction.getBinaryPrediction() != null ? prediction.getBinaryPrediction() : "CIVIC_ISSUE");
+        complaint.setNotCivicProbability(prediction.getNotCivicProbability());
+        complaint.setCivicProbability(prediction.getCivicProbability());
+
         Double confidence = prediction.getConfidence();
         String rawCategory = prediction.getPredictedClass();
         String canonicalCategory = categoryDepartmentMappingService.normalizeCategory(rawCategory);
@@ -279,6 +316,11 @@ public class AutomaticRoutingService {
             if (issue != null && issue != IssueType.NONE) {
                 complaint.setIssueType(issue);
             }
+        }
+
+        if (Boolean.FALSE.equals(complaint.getIsCivicIssue())) {
+            complaint.setIsCivicIssue(true);
+            complaint.setBinaryPrediction("CIVIC_ISSUE_OVERRIDDEN_BY_ADMIN");
         }
 
         ComplaintStatus oldStatus = complaint.getStatus();

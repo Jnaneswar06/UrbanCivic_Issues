@@ -16,12 +16,24 @@ import java.util.Map;
 @Builder
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class MlPredictionResponse {
+
+    // Original fields from single‑stage model
     private String predictedClass;
     private Double confidence;
     private Object probabilities;
     private Map<String, Double> classProbabilities;
     private String modelVersion;
     private String error;
+
+    // New fields for two‑stage pipeline
+    private Boolean isCivicIssue;
+    private String binaryPrediction;
+    private Double notCivicProbability;
+    private Double civicProbability;
+    private Boolean success;
+    private String classificationStatus;
+    private String stage;
+
 
     @SuppressWarnings("unchecked")
     public List<Double> getProbabilitiesAsList() {
@@ -42,4 +54,3 @@ public class MlPredictionResponse {
         return Collections.emptyMap();
     }
 }
-

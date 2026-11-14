@@ -5,4 +5,4 @@
  * When testing on a physical Android device or emulator, localhost refers to the device itself.
  * Use the development machine's local LAN IP address.
  */
-export const API_BASE_URL = 'http://192.168.29.21:8080';
+export const API_BASE_URL = 'http://10.58.168.232:8080';

@@ -106,6 +106,18 @@ public class Complaint {
     @Column(name = "model_version")
     private String modelVersion;
 
+    @Column(name = "is_civic_issue")
+    private Boolean isCivicIssue;
+
+    @Column(name = "binary_prediction")
+    private String binaryPrediction;
+
+    @Column(name = "not_civic_probability")
+    private Double notCivicProbability;
+
+    @Column(name = "civic_probability")
+    private Double civicProbability;
+
     @Column(name = "assignment_method")
     private String assignmentMethod;
 

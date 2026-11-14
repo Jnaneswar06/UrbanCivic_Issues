@@ -61,6 +61,11 @@ public class ComplaintResponse {
     private String predictedCategory;
     private String modelVersion;
     private String assignmentMethod;
+    private Boolean isCivicIssue;
+    private String binaryPrediction;
+    private Double notCivicProbability;
+    private Double civicProbability;
+
     private Boolean requiresManualReview;
     private String adminReviewReason;
     private LocalDateTime assignedAt;

@@ -228,6 +228,81 @@ class AutomaticRoutingServiceTest {
     }
 
     @Test
+    @DisplayName("Stage 1 Binary Rejection (NOT_CIVIC_ISSUE): Sets REJECTED, requiresManualReview=true, and leaves department null")
+    void testStage1BinaryRejectionNonCivicIssue() {
+        MlPredictionResponse prediction = MlPredictionResponse.builder()
+                .success(true)
+                .isCivicIssue(false)
+                .classificationStatus("REJECTED")
+                .stage("BINARY_RELEVANCE")
+                .binaryPrediction("NOT_CIVIC_ISSUE")
+                .notCivicProbability(0.93)
+                .civicProbability(0.07)
+                .predictedClass(null)
+                .confidence(0.07)
+                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .build();
+
+        when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
+
+        Complaint result = routingService.routeComplaint(complaint, new byte[]{1, 2, 3}, "selfie.jpg");
+
+        assertNotNull(result);
+        assertEquals(ComplaintStatus.REJECTED, result.getStatus());
+        assertFalse(result.getIsCivicIssue());
+        assertEquals("NOT_CIVIC_ISSUE", result.getBinaryPrediction());
+        assertEquals(0.93, result.getNotCivicProbability());
+        assertEquals(0.07, result.getCivicProbability());
+        assertNull(result.getPredictedCategory());
+        assertTrue(result.getRequiresManualReview());
+        assertEquals("REJECTED_NON_CIVIC_IMAGE", result.getAssignmentMethod());
+        assertNotNull(result.getAdminReviewReason());
+        assertTrue(result.getAdminReviewReason().contains("NOT_CIVIC_ISSUE"));
+        assertNull(result.getDepartment());
+        assertNull(result.getAssignedSupervisor());
+        assertNull(result.getAssignedWorker());
+
+        verify(historyRepository).save(any(ComplaintStatusHistory.class));
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    @DisplayName("Stage 1 Binary Pass (CIVIC_ISSUE) + Stage 2 High Confidence: Sets isCivicIssue=true and auto-forwards")
+    void testStage1BinaryPassWithHighConfidenceEightClass() {
+        MlPredictionResponse prediction = MlPredictionResponse.builder()
+                .success(true)
+                .isCivicIssue(true)
+                .classificationStatus("CLASSIFIED")
+                .stage("EIGHT_CLASS_CLASSIFICATION")
+                .binaryPrediction("CIVIC_ISSUE")
+                .notCivicProbability(0.04)
+                .civicProbability(0.96)
+                .predictedClass("Potholes and RoadCracks")
+                .confidence(0.89)
+                .modelVersion("urbanpulse_8class_pothole_stage1")
+                .build();
+
+        when(mlInferenceService.predictImage(any(), any())).thenReturn(Optional.of(prediction));
+        when(departmentRepository.findByName("Road Safety Department")).thenReturn(Optional.of(roadsDept));
+        when(userRepository.findByRoleAndDepartmentId(Role.SUPERVISOR, roadsDept.getId())).thenReturn(List.of(roadsSupervisor));
+
+        Complaint result = routingService.routeComplaint(complaint, new byte[]{1, 2, 3}, "pothole.jpg");
+
+        assertNotNull(result);
+        assertEquals(ComplaintStatus.FORWARDED, result.getStatus());
+        assertTrue(result.getIsCivicIssue());
+        assertEquals("CIVIC_ISSUE", result.getBinaryPrediction());
+        assertEquals(0.04, result.getNotCivicProbability());
+        assertEquals(0.96, result.getCivicProbability());
+        assertEquals("Potholes and Road Cracks", result.getPredictedCategory());
+        assertEquals(0.89, result.getConfidenceScore());
+        assertEquals("AUTO_ML", result.getAssignmentMethod());
+        assertFalse(result.getRequiresManualReview());
+        assertEquals(roadsDept, result.getDepartment());
+        assertEquals(roadsSupervisor, result.getAssignedSupervisor());
+    }
+
+    @Test
     @DisplayName("Admin manual assignment: Reassigns department/supervisor, clears manual review flag and sets FORWARDED")
     void testAdminManualAssign() {
         complaint.setRequiresManualReview(true);
